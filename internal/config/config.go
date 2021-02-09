@@ -9,7 +9,7 @@ import (
 )
 
 var (
-	ParseError = errors.New("couldn't parse config from env vars")
+	ErrParse = errors.New("couldn't parse config from env vars")
 )
 
 type Config struct {
@@ -30,7 +30,7 @@ func (c Config) Generate(r *rand.Rand, _ int) reflect.Value {
 func FromEnvironment() (*Config, error) {
 	cfg := &Config{}
 	if err := env.Parse(cfg); err != nil {
-		return nil, ParseError
+		return nil, ErrParse
 	}
 
 	return cfg, nil

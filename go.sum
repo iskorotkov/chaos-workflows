@@ -33,7 +33,6 @@ github.com/PuerkitoBio/urlesc v0.0.0-20160726150825-5bd2802263f2/go.mod h1:uGdko
 github.com/PuerkitoBio/urlesc v0.0.0-20170810143723-de5bf2ad4578 h1:d+Bc7a5rLufV/sSk/8dngufqelfh6jnri85riMAaF/M=
 github.com/PuerkitoBio/urlesc v0.0.0-20170810143723-de5bf2ad4578/go.mod h1:uGdkoq3SwY9Y+13GIhn11/XLaGBb4BfwItxLd5jeuXE=
 github.com/antihax/optional v1.0.0/go.mod h1:uupD/76wgC+ih3iEmQUL+0Ugr19nfwCT1kdvxnR2qWY=
-github.com/argoproj/argo v0.4.7 h1:7hV5d8tExYt5vAvU+sgaXLkEv55vmyq48k12TDmYz5g=
 github.com/argoproj/argo v2.5.2+incompatible h1:ciB/KCPIxD2VItjR93DfgvUb5Z0rOYJ6qk6ktz18rv4=
 github.com/argoproj/argo v2.5.2+incompatible/go.mod h1:KJ0MB+tuhtAklR4jkPM10mIZXfRA0peTYJ1sLUnFLVU=
 github.com/asaskevich/govalidator v0.0.0-20190424111038-f61b66f89f4a/go.mod h1:lB+ZfQJz7igIIfQNfa7Ml4HSf2uFQQRzpGGRXenZAgY=

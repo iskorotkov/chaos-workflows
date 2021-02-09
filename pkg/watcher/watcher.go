@@ -12,10 +12,10 @@ import (
 )
 
 var (
-	ConnectionError = errors.New("couldn't establish connection to gRPC server")
-	RequestError    = errors.New("couldn't start watching updates")
-	StreamError     = errors.New("couldn't read workflow update")
-	SpecError       = errors.New("couldn't find step spec")
+	ErrConnection = errors.New("couldn't establish connection to gRPC server")
+	ErrRequest    = errors.New("couldn't start watching updates")
+	ErrStream     = errors.New("couldn't read workflow update")
+	ErrSpec       = errors.New("couldn't find step spec")
 )
 
 type Watcher struct {
@@ -23,7 +23,7 @@ type Watcher struct {
 	logger *zap.SugaredLogger
 }
 
-func NewMonitor(url string, logger *zap.SugaredLogger) Watcher {
+func NewWatcher(url string, logger *zap.SugaredLogger) Watcher {
 	return Watcher{url: url, logger: logger}
 }
 
@@ -34,7 +34,7 @@ func (w Watcher) Start(ctx context.Context, name string, namespace string, outpu
 	if err != nil {
 		w.logger.Errorw(err.Error(),
 			"url", w.url)
-		return ConnectionError
+		return ErrConnection
 	}
 
 	defer func() {
@@ -54,7 +54,7 @@ func (w Watcher) Start(ctx context.Context, name string, namespace string, outpu
 	if err != nil {
 		w.logger.Errorw(err.Error(),
 			"selector", selector)
-		return RequestError
+		return ErrRequest
 	}
 
 	defer close(output)
@@ -69,7 +69,7 @@ func (w Watcher) Start(ctx context.Context, name string, namespace string, outpu
 			w.logger.Errorw(err.Error(),
 				"selector", selector,
 				"namespace", namespace)
-			return StreamError
+			return ErrStream
 		}
 
 		ev, err := newEvent(msg)

@@ -41,7 +41,7 @@ func watchWS(w http.ResponseWriter, r *http.Request, logger *zap.SugaredLogger) 
 		return
 	}
 
-	m := watcher.NewMonitor(cfg.ArgoServer, logger.Named("monitor"))
+	m := watcher.NewWatcher(cfg.ArgoServer, logger.Named("monitor"))
 
 	events := make(chan *watcher.Event)
 
@@ -72,7 +72,7 @@ func sendEvents(ctx context.Context, socket ws.Websocket, events chan *watcher.E
 				return
 			}
 
-			if err := socket.Write(ctx, event); err != nil && err != ws.DeadlineExceededError && err != ws.ContextCancelledError {
+			if err := socket.Write(ctx, event); err != nil && err != ws.ErrDeadlineExceeded && err != ws.ErrContextCancelled {
 				logger.Error(err.Error())
 				return
 			}
@@ -83,7 +83,7 @@ func sendEvents(ctx context.Context, socket ws.Websocket, events chan *watcher.E
 }
 
 func closeWebsocket(socket ws.Websocket, logger *zap.SugaredLogger) {
-	if err := socket.Close(); err != nil && err != ws.DeadlineExceededError {
+	if err := socket.Close(); err != nil && err != ws.ErrDeadlineExceeded {
 		logger.Error(err.Error())
 	}
 
