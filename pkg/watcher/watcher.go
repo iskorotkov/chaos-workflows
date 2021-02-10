@@ -12,77 +12,98 @@ import (
 )
 
 var (
-	ErrConnection = errors.New("couldn't establish connection to gRPC server")
-	ErrRequest    = errors.New("couldn't start watching updates")
-	ErrStream     = errors.New("couldn't read workflow update")
-	ErrSpec       = errors.New("couldn't find step spec")
+	ErrConnectionFailed      = errors.New("couldn't establish connection to gRPC server")
+	ErrConnectionCloseFailed = errors.New("couldn't close connection correctly")
+	ErrServiceCloseFailed    = errors.New("couldn't close service stream")
+	ErrRequestFailed         = errors.New("couldn't start watching updates")
+	ErrReadFailed            = errors.New("couldn't read workflow update")
+	ErrSpecAnalysisFailed    = errors.New("couldn't find step spec")
+	ErrFinished              = errors.New("event stream finished")
 )
 
 type Watcher struct {
-	url    string
+	conn   *grpc.ClientConn
 	logger *zap.SugaredLogger
 }
 
-func NewWatcher(url string, logger *zap.SugaredLogger) Watcher {
-	return Watcher{url: url, logger: logger}
+func NewWatcher(url string, logger *zap.SugaredLogger) (Watcher, error) {
+	logger.Info("opening watcher gRPC connection")
+
+	conn, err := grpc.Dial(url, grpc.WithInsecure())
+	if err != nil {
+		logger.Errorw(err.Error(), "url", url)
+		return Watcher{}, ErrConnectionFailed
+	}
+
+	return Watcher{conn: conn, logger: logger}, nil
 }
 
-func (w Watcher) Start(ctx context.Context, name string, namespace string, output chan<- *Event) error {
-	w.logger.Info("opening watcher gRPC connection")
+func (w Watcher) Watch(ctx context.Context, namespace string, name string) (EventStream, error) {
+	client := workflow.NewWorkflowServiceClient(w.conn)
 
-	conn, err := grpc.Dial(w.url, grpc.WithInsecure())
-	if err != nil {
-		w.logger.Errorw(err.Error(),
-			"url", w.url)
-		return ErrConnection
+	request := &workflow.WatchWorkflowsRequest{
+		Namespace: namespace,
+		ListOptions: &v1.ListOptions{
+			FieldSelector: fmt.Sprintf("metadata.name=%s", name),
+		},
 	}
 
-	defer func() {
-		w.logger.Info("closing watcher gRPC connection")
-		err := conn.Close()
-		if err != nil {
-			w.logger.Error(err.Error())
-		}
-	}()
-
-	client := workflow.NewWorkflowServiceClient(conn)
-
-	selector := fmt.Sprintf("metadata.name=%s", name)
-	options := &v1.ListOptions{FieldSelector: selector}
-	request := &workflow.WatchWorkflowsRequest{Namespace: namespace, ListOptions: options}
 	service, err := client.WatchWorkflows(ctx, request)
 	if err != nil {
-		w.logger.Errorw(err.Error(),
-			"selector", selector)
-		return ErrRequest
+		w.logger.Errorw(err.Error(), "selector", fmt.Sprintf("metadata.name=%s", name))
+		return EventStream{}, ErrRequestFailed
 	}
 
-	defer close(output)
+	return EventStream{
+		service: service,
+		logger:  w.logger.Named(fmt.Sprintf("%s-%s", namespace, name)),
+	}, nil
+}
 
-	for {
-		msg, err := service.Recv()
-		if err == io.EOF || ctx.Err() != nil {
-			break
-		}
+func (w Watcher) Close() error {
+	w.logger.Info("closing watcher gRPC connection")
+	if err := w.conn.Close(); err != nil {
+		w.logger.Error(err)
+		return ErrConnectionCloseFailed
+	}
 
-		if err != nil {
-			w.logger.Errorw(err.Error(),
-				"selector", selector,
-				"namespace", namespace)
-			return ErrStream
-		}
+	return nil
+}
 
-		ev, err := newEvent(msg)
-		if err != nil {
-			w.logger.Error(err.Error())
-			return err
-		}
+type EventStream struct {
+	ctx     context.Context
+	service workflow.WorkflowService_WatchWorkflowsClient
+	logger  *zap.SugaredLogger
+}
 
-		output <- ev
+func (e EventStream) Next() (Event, error) {
+	msg, err := e.service.Recv()
+	if err == io.EOF || e.ctx.Err() != nil {
+		return Event{}, ErrFinished
+	}
 
-		if ev.Phase != "Running" && ev.Phase != "Pending" {
-			break
-		}
+	if err != nil {
+		e.logger.Error(err)
+		return Event{}, ErrReadFailed
+	}
+
+	event, err := newEvent(msg)
+	if err != nil {
+		e.logger.Error(err)
+		return Event{}, err
+	}
+
+	if event.Phase != "Running" && event.Phase != "Pending" {
+		return Event{}, ErrFinished
+	}
+
+	return event, nil
+}
+
+func (e EventStream) Close() error {
+	if err := e.service.CloseSend(); err != nil {
+		e.logger.Error(err)
+		return ErrServiceCloseFailed
 	}
 
 	return nil

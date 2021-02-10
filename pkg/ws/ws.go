@@ -7,7 +7,6 @@ import (
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
 	"go.uber.org/zap"
-	"io"
 	"net"
 	"net/http"
 	"os"
@@ -27,19 +26,8 @@ var (
 	ErrClose            = errors.New("couldn't close websocket connection")
 )
 
-type CloseReason string
-
-var (
-	ReasonErrorOccurred    = CloseReason("error occurred while waiting for connection closing")
-	ReasonDeadlineExceeded = CloseReason("websocket connection deadline exceeded")
-	ReasonClosedOnServer   = CloseReason("websocket connection was closed on the server")
-	ReasonClosedOnClient   = CloseReason("websocket connection was closed on the client")
-	ReasonEOF              = CloseReason("websocket was closed due to EOF caused by disconnected client")
-)
-
 type Websocket struct {
 	conn   net.Conn
-	Closed <-chan CloseReason
 	logger *zap.SugaredLogger
 }
 
@@ -52,16 +40,7 @@ func NewWebsocket(w http.ResponseWriter, r *http.Request, logger *zap.SugaredLog
 		return Websocket{}, ErrConnection
 	}
 
-	ch := make(chan CloseReason, 1)
-
-	socket := Websocket{conn: conn, Closed: ch, logger: logger}
-
-	go func() {
-		defer close(ch)
-		ch <- socket.waitForClosing()
-	}()
-
-	return socket, nil
+	return Websocket{conn: conn, logger: logger}, nil
 }
 
 func (w Websocket) Read(ctx context.Context, data interface{}) error {
@@ -167,30 +146,4 @@ func (w Websocket) setDeadline(ctx context.Context) error {
 	}
 
 	return nil
-}
-
-func (w Websocket) waitForClosing() CloseReason {
-	for {
-		header, err := ws.ReadHeader(w.conn)
-		if err != nil {
-			if errors.Is(err, os.ErrDeadlineExceeded) {
-				return ReasonDeadlineExceeded
-			}
-
-			if _, ok := err.(*net.OpError); ok {
-				return ReasonClosedOnServer
-			}
-
-			if err == io.EOF {
-				return ReasonEOF
-			}
-
-			w.logger.Warn(err.Error())
-			return ReasonErrorOccurred
-		}
-
-		if header.OpCode == ws.OpClose {
-			return ReasonClosedOnClient
-		}
-	}
 }

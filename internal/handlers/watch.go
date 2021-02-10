@@ -11,74 +11,80 @@ import (
 	"time"
 )
 
-type request struct {
-	Name      string `json:"name"`
-	Namespace string `json:"namespace"`
-}
-
 func watchWS(w http.ResponseWriter, r *http.Request, logger *zap.SugaredLogger) {
-	req := request{
-		Name:      chi.URLParam(r, "name"),
-		Namespace: chi.URLParam(r, "namespace"),
+	namespace, name := chi.URLParam(r, "namespace"), chi.URLParam(r, "name")
+	if namespace == "" || name == "" {
+		msg := "namespace and name must not be empty"
+		logger.Infow(msg, "namespace", namespace, "name", name)
+		http.Error(w, msg, http.StatusBadRequest)
+		return
 	}
 
-	logger.Infow("get request params from url",
-		"request", req)
+	logger.Infow("get request params from url", "namespace", namespace, "name", name)
 
-	entry := r.Context().Value("config")
-	cfg, ok := entry.(*config.Config)
+	cfg, ok := r.Context().Value("config").(*config.Config)
 	if !ok {
 		msg := "couldn't get config for request context"
-		logger.Errorw(msg,
-			"config", "entry")
+		logger.Error(msg)
 		http.Error(w, msg, http.StatusInternalServerError)
+		return
 	}
 
+	// TODO: use interface
 	socket, err := ws.NewWebsocket(w, r, logger.Named("websocket"))
 	if err != nil {
 		logger.Error(err)
 		http.Error(w, "couldn't create websocket connection", http.StatusInternalServerError)
 		return
 	}
+	defer closeWebsocket(socket, logger)
 
-	m := watcher.NewWatcher(cfg.ArgoServer, logger.Named("monitor"))
+	// TODO: use interface
+	wt, err := watcher.NewWatcher(cfg.ArgoServer, logger.Named("monitor"))
+	if err != nil {
+		logger.Error(err)
+		http.Error(w, "couldn't create event watcher", http.StatusInternalServerError)
+		return
+	}
+	defer closeWatcher(wt, logger)
 
-	events := make(chan *watcher.Event)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Hour)
+	defer cancel()
 
-	monitorCtx, monitorCancel := context.WithTimeout(context.Background(), time.Hour)
-	wsCtx, wsCancel := context.WithTimeout(context.Background(), time.Hour)
+	stream, err := wt.Watch(ctx, namespace, name)
+	if err != nil {
+		logger.Error(err)
+		http.Error(w, "couldn't start event stream", http.StatusInternalServerError)
+	}
+	defer closeStream(stream, logger)
 
-	go func() {
-		defer readRemainingEvents(events)
-		defer closeWebsocket(socket, logger)
-
-		defer monitorCancel()
-		defer wsCancel()
-
-		sendEvents(wsCtx, socket, events, logger)
-	}()
-
-	go func() {
-		defer monitorCancel()
-		readEvents(monitorCtx, m, req, events, logger)
-	}()
+	transmitEvents(ctx, stream, socket, w, logger)
+	logger.Info("all workflow events were processed")
 }
 
-func sendEvents(ctx context.Context, socket ws.Websocket, events chan *watcher.Event, logger *zap.SugaredLogger) {
+func transmitEvents(ctx context.Context, stream watcher.EventStream, socket ws.Websocket, w http.ResponseWriter, logger *zap.SugaredLogger) {
 	for {
-		select {
-		case event := <-events:
-			if event == nil {
-				return
-			}
-
-			if err := socket.Write(ctx, event); err != nil && err != ws.ErrDeadlineExceeded && err != ws.ErrContextCancelled {
-				logger.Error(err.Error())
-				return
-			}
-		case <-socket.Closed:
-			return
+		event, err := stream.Next()
+		if err == watcher.ErrFinished {
+			logger.Info("all workflow events were read")
+			break
+		} else if err != nil {
+			logger.Error(err)
+			http.Error(w, "error occurred while streaming workflow events", http.StatusInternalServerError)
+			break
 		}
+
+		if err := socket.Write(ctx, event); err != nil && err != ws.ErrDeadlineExceeded && err != ws.ErrContextCancelled {
+			logger.Error(err)
+			http.Error(w, "error occurred while sending event via websocket", http.StatusInternalServerError)
+			break
+		}
+	}
+}
+
+func closeStream(stream watcher.EventStream, logger *zap.SugaredLogger) {
+	if err := stream.Close(); err != nil {
+		logger.Error(err)
 	}
 }
 
@@ -86,22 +92,10 @@ func closeWebsocket(socket ws.Websocket, logger *zap.SugaredLogger) {
 	if err := socket.Close(); err != nil && err != ws.ErrDeadlineExceeded {
 		logger.Error(err.Error())
 	}
-
-	logger.Info("all workflow events were processed")
 }
 
-func readRemainingEvents(events <-chan *watcher.Event) {
-	for {
-		if event := <-events; event == nil {
-			break
-		}
+func closeWatcher(wt watcher.Watcher, logger *zap.SugaredLogger) {
+	if err := wt.Close(); err != nil {
+		logger.Error(err)
 	}
-}
-
-func readEvents(ctx context.Context, m watcher.Watcher, req request, events chan<- *watcher.Event, logger *zap.SugaredLogger) {
-	if err := m.Start(ctx, req.Name, req.Namespace, events); err != nil {
-		logger.Error(err.Error())
-	}
-
-	logger.Info("all workflow events were sent")
 }

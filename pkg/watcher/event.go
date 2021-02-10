@@ -115,7 +115,7 @@ func findStepSpec(ts []v1alpha1.Template, stepStatus v1alpha1.NodeStatus) (v1alp
 		}
 	}
 
-	return v1alpha1.Template{}, ErrSpec
+	return v1alpha1.Template{}, ErrSpecAnalysisFailed
 }
 
 func newStep(metadata v1alpha1.Metadata, n v1alpha1.NodeStatus) Step {
@@ -139,13 +139,13 @@ func newStage(n v1alpha1.NodeStatus, steps []Step) Stage {
 	}
 }
 
-func newEvent(e *workflow.WorkflowWatchEvent) (*Event, error) {
+func newEvent(e *workflow.WorkflowWatchEvent) (Event, error) {
 	stages, err := buildNodesTree(e.Object.Spec.Templates, nodes(e.Object.Status.Nodes))
 	if err != nil {
-		return nil, err
+		return Event{}, err
 	}
 
-	return &Event{
+	return Event{
 		Name:        e.Object.Name,
 		Namespace:   e.Object.Namespace,
 		Type:        e.Type,
