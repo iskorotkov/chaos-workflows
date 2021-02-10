@@ -1,3 +1,4 @@
+// Package handlers describes http handling.
 package handlers
 
 import (
@@ -8,12 +9,14 @@ import (
 
 type handler func(w http.ResponseWriter, r *http.Request, logger *zap.SugaredLogger)
 
+// withLogger passes additional zap.SugaredLogger to a http.HandlerFunc.
 func withLogger(handler handler, logger *zap.SugaredLogger) http.HandlerFunc {
 	return func(writer http.ResponseWriter, request *http.Request) {
 		handler(writer, request, logger)
 	}
 }
 
+// Router returns configured router.
 func Router(logger *zap.SugaredLogger) http.Handler {
 	r := chi.NewRouter()
 

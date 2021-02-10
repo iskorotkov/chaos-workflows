@@ -1,3 +1,4 @@
+// Package config reads settings from environment variables.
 package config
 
 import (
@@ -27,6 +28,7 @@ func (c Config) Generate(r *rand.Rand, _ int) reflect.Value {
 	})
 }
 
+// FromEnvironment returns Config created from environment variables.
 func FromEnvironment() (*Config, error) {
 	cfg := &Config{}
 	if err := env.Parse(cfg); err != nil {

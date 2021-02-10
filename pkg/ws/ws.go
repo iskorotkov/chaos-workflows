@@ -1,3 +1,4 @@
+// Package ws is a wrapper for websocket from github.com/gobwas/ws.
 package ws
 
 import (
@@ -26,6 +27,7 @@ var (
 	ErrClose            = errors.New("couldn't close websocket connection")
 )
 
+// Websocket is a websocket wrapper.
 type Websocket struct {
 	conn   net.Conn
 	logger *zap.SugaredLogger
@@ -43,6 +45,8 @@ func NewWebsocket(w http.ResponseWriter, r *http.Request, logger *zap.SugaredLog
 	return Websocket{conn: conn, logger: logger}, nil
 }
 
+// Read deserializes message from websocket to data.
+// The method is blocking.
 func (w Websocket) Read(ctx context.Context, data interface{}) error {
 	if ctx.Err() != nil {
 		if ctx.Err() == context.Canceled {
@@ -59,22 +63,23 @@ func (w Websocket) Read(ctx context.Context, data interface{}) error {
 	reader := wsutil.NewReader(w.conn, ws.StateServerSide)
 	decoder := json.NewDecoder(reader)
 
+	// Read frame.
 	header, err := reader.NextFrame()
-	if err != nil {
-		if errors.Is(err, os.ErrDeadlineExceeded) {
-			w.logger.Info("websocket connection deadline exceeded")
-			return ErrDeadlineExceeded
-		}
-
+	if errors.Is(err, os.ErrDeadlineExceeded) {
+		w.logger.Info("websocket connection deadline exceeded")
+		return ErrDeadlineExceeded
+	} else if err != nil {
 		w.logger.Error(err)
 		return ErrRead
 	}
 
+	// Check websocket status.
 	if header.OpCode == ws.OpClose {
-		w.logger.Error("couldn't read message from websocket due to EOF")
+		w.logger.Info("couldn't read message from websocket due to EOF")
 		return ErrEOF
 	}
 
+	// Decode message.
 	if err := decoder.Decode(&data); err != nil {
 		w.logger.Error(err)
 		return ErrDecode
@@ -83,13 +88,13 @@ func (w Websocket) Read(ctx context.Context, data interface{}) error {
 	return nil
 }
 
+// Write serializes data to websocket.
+// The method is blocking.
 func (w Websocket) Write(ctx context.Context, data interface{}) error {
-	if ctx.Err() != nil {
-		if ctx.Err() == context.Canceled {
-			return ErrContextCancelled
-		} else {
-			return ErrDeadlineExceeded
-		}
+	if ctx.Err() == context.Canceled {
+		return ErrContextCancelled
+	} else if ctx.Err() != nil {
+		return ErrDeadlineExceeded
 	}
 
 	if err := w.setDeadline(ctx); err != nil {
@@ -99,18 +104,18 @@ func (w Websocket) Write(ctx context.Context, data interface{}) error {
 	writer := wsutil.NewWriter(w.conn, ws.StateServerSide, ws.OpText)
 	encoder := json.NewEncoder(writer)
 
+	// Prepare message.
 	if err := encoder.Encode(&data); err != nil {
-		w.logger.Error(err.Error())
+		w.logger.Error(err)
 		return ErrEncode
 	}
 
-	if err := writer.Flush(); err != nil {
-		if errors.Is(err, os.ErrDeadlineExceeded) {
-			w.logger.Info("websocket connection deadline exceeded")
-			return ErrDeadlineExceeded
-		}
-
-		w.logger.Error(err.Error())
+	// Write message to websocket.
+	if err := writer.Flush(); errors.Is(err, os.ErrDeadlineExceeded) {
+		w.logger.Info("websocket connection deadline exceeded")
+		return ErrDeadlineExceeded
+	} else if err != nil {
+		w.logger.Error(err)
 		return ErrFlush
 	}
 
@@ -120,14 +125,11 @@ func (w Websocket) Write(ctx context.Context, data interface{}) error {
 func (w Websocket) Close() error {
 	w.logger.Infow("closing websocket connection")
 
-	err := w.conn.Close()
-	if err != nil {
-		if errors.Is(err, os.ErrDeadlineExceeded) {
-			w.logger.Info("websocket connection deadline exceeded")
-			return ErrDeadlineExceeded
-		}
-
-		w.logger.Error(err.Error())
+	if err := w.conn.Close(); errors.Is(err, os.ErrDeadlineExceeded) {
+		w.logger.Info("websocket connection deadline exceeded")
+		return ErrDeadlineExceeded
+	} else if err != nil {
+		w.logger.Error(err)
 		return ErrClose
 	}
 
@@ -137,6 +139,7 @@ func (w Websocket) Close() error {
 func (w Websocket) setDeadline(ctx context.Context) error {
 	t, ok := ctx.Deadline()
 	if !ok {
+		// Reset deadline.
 		t = time.Time{}
 	}
 
