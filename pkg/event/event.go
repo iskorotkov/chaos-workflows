@@ -16,11 +16,6 @@ var (
 	ErrSpecAnalysisFailed = errors.New("couldn't find step spec")
 )
 
-type Watcher interface {
-	Watch(ctx context.Context, namespace, name string) (Reader, error)
-	Close() error
-}
-
 type Reader interface {
 	Read() (Event, error)
 	Close() error

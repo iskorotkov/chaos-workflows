@@ -3,14 +3,31 @@ package handlers
 import (
 	"context"
 	"github.com/go-chi/chi"
-	"github.com/iskorotkov/chaos-workflows/internal/config"
+	"github.com/iskorotkov/chaos-workflows/pkg/argo"
 	"github.com/iskorotkov/chaos-workflows/pkg/event"
-	"github.com/iskorotkov/chaos-workflows/pkg/watcher"
 	"github.com/iskorotkov/chaos-workflows/pkg/ws"
 	"go.uber.org/zap"
+	"io"
 	"net/http"
 	"time"
 )
+
+const (
+	ContextReaderFactory = "reader-factory"
+	ContextWriterFactory = "writer-factory"
+
+	prerequisitesErr = "couldn't get all prerequisites to process the request"
+)
+
+type ReaderFactory interface {
+	New(ctx context.Context, namespace, name string) (event.Reader, error)
+	Close() error
+}
+
+type WriterFactory interface {
+	New(w http.ResponseWriter, r *http.Request) (event.Writer, error)
+	Close() error
+}
 
 func watchWS(w http.ResponseWriter, r *http.Request, logger *zap.SugaredLogger) {
 	namespace, name := chi.URLParam(r, "namespace"), chi.URLParam(r, "name")
@@ -23,50 +40,43 @@ func watchWS(w http.ResponseWriter, r *http.Request, logger *zap.SugaredLogger) 
 
 	logger.Infow("get request params from url", "namespace", namespace, "name", name)
 
-	cfg, ok := r.Context().Value("config").(*config.Config)
+	rf, ok := r.Context().Value(ContextReaderFactory).(ReaderFactory)
 	if !ok {
-		msg := "couldn't get config for request context"
-		logger.Error(msg)
-		http.Error(w, msg, http.StatusInternalServerError)
-		return
+		logger.Error("couldn't get reader factory from request context")
+		http.Error(w, prerequisitesErr, http.StatusInternalServerError)
 	}
 
-	// TODO: use interface
-	socket, err := ws.NewWebsocket(w, r, logger.Named("websocket"))
-	if err != nil {
-		logger.Error(err)
-		http.Error(w, "couldn't create websocket connection", http.StatusInternalServerError)
-		return
+	wf, ok := r.Context().Value(ContextWriterFactory).(WriterFactory)
+	if !ok {
+		logger.Error("couldn't get writer factory from request context")
+		http.Error(w, prerequisitesErr, http.StatusInternalServerError)
 	}
-	defer closeWebsocket(socket, logger)
-
-	// TODO: use interface
-	wt, err := watcher.NewWatcher(cfg.ArgoServer, logger.Named("monitor"))
-	if err != nil {
-		logger.Error(err)
-		http.Error(w, "couldn't create event watcher", http.StatusInternalServerError)
-		return
-	}
-	defer closeWatcher(wt, logger)
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Hour)
 	defer cancel()
 
-	stream, err := wt.Watch(ctx, namespace, name)
+	reader, err := rf.New(ctx, namespace, name)
 	if err != nil {
 		logger.Error(err)
 		http.Error(w, "couldn't start event stream", http.StatusInternalServerError)
 	}
-	defer closeStream(stream, logger)
+	defer closeWithLogger(reader, logger)
 
-	transmitEvents(ctx, stream, socket, w, logger)
+	writer, err := wf.New(w, r)
+	if err != nil {
+		logger.Error(err)
+		http.Error(w, "couldn't start event stream", http.StatusInternalServerError)
+	}
+	defer closeWithLogger(writer, logger)
+
+	transmitEvents(ctx, reader, writer, w, logger)
 	logger.Info("all workflow events were processed")
 }
 
-func transmitEvents(ctx context.Context, stream event.Reader, socket ws.Websocket, w http.ResponseWriter, logger *zap.SugaredLogger) {
+func transmitEvents(ctx context.Context, stream event.Reader, socket event.Writer, w http.ResponseWriter, logger *zap.SugaredLogger) {
 	for {
 		ev, err := stream.Read()
-		if err == watcher.ErrFinished {
+		if err == argo.ErrFinished {
 			logger.Info("all workflow events were read")
 			break
 		} else if err != nil {
@@ -83,20 +93,10 @@ func transmitEvents(ctx context.Context, stream event.Reader, socket ws.Websocke
 	}
 }
 
-func closeStream(stream event.Reader, logger *zap.SugaredLogger) {
-	if err := stream.Close(); err != nil {
-		logger.Error(err)
-	}
-}
-
-func closeWebsocket(socket ws.Websocket, logger *zap.SugaredLogger) {
-	if err := socket.Close(); err != nil && err != ws.ErrDeadlineExceeded {
-		logger.Error(err.Error())
-	}
-}
-
-func closeWatcher(wt watcher.Watcher, logger *zap.SugaredLogger) {
-	if err := wt.Close(); err != nil {
-		logger.Error(err)
-	}
+func closeWithLogger(stream io.Closer, logger *zap.SugaredLogger) {
+	defer func() {
+		if err := stream.Close(); err != nil {
+			logger.Error(err)
+		}
+	}()
 }

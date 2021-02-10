@@ -7,6 +7,8 @@ import (
 	"github.com/go-chi/cors"
 	"github.com/iskorotkov/chaos-workflows/internal/config"
 	"github.com/iskorotkov/chaos-workflows/internal/handlers"
+	"github.com/iskorotkov/chaos-workflows/pkg/argo"
+	"github.com/iskorotkov/chaos-workflows/pkg/eventws"
 	"go.uber.org/zap"
 	"log"
 	"net/http"
@@ -24,7 +26,16 @@ func main() {
 
 	logger.Infow("get config from environment", "config", cfg)
 
-	r := createRouter(cfg, logger)
+	r := createRouter(logger)
+	r.Use(contextValue("config", cfg))
+
+	wf, rf, err := createReaderWriter(cfg.ArgoServer, logger)
+	if err != nil {
+		logger.Fatal("couldn't create reader and/or writer")
+	}
+	r.Use(contextValue(handlers.ContextReaderFactory, rf))
+	r.Use(contextValue(handlers.ContextWriterFactory, wf))
+
 	if err = http.ListenAndServe(":8811", r); err != nil {
 		logger.Fatal(err.Error())
 	}
@@ -39,7 +50,7 @@ func contextValue(key, value interface{}) func(next http.Handler) http.Handler {
 	}
 }
 
-func createRouter(cfg *config.Config, logger *zap.SugaredLogger) *chi.Mux {
+func createRouter(logger *zap.SugaredLogger) *chi.Mux {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
@@ -49,7 +60,6 @@ func createRouter(cfg *config.Config, logger *zap.SugaredLogger) *chi.Mux {
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins: []string{"*"},
 	}))
-	r.Use(contextValue("config", cfg))
 
 	r.Route("/api", func(r chi.Router) {
 		r.Route("/v1", func(r chi.Router) {
@@ -83,4 +93,15 @@ func syncLogger(logger *zap.SugaredLogger) {
 	if err != nil {
 		log.Fatal(err.Error())
 	}
+}
+
+func createReaderWriter(writerURL string, logger *zap.SugaredLogger) (handlers.ReaderFactory, handlers.WriterFactory, error) {
+	readerF, err := argo.NewWatcher(writerURL, logger.Named("argo"))
+	if err != nil {
+		return nil, nil, err
+	}
+
+	writerF := eventws.NewWebsocketFactory()
+
+	return readerF, writerF, err
 }
