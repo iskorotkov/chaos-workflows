@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/go-chi/chi"
 	"github.com/iskorotkov/chaos-workflows/internal/config"
+	"github.com/iskorotkov/chaos-workflows/pkg/event"
 	"github.com/iskorotkov/chaos-workflows/pkg/watcher"
 	"github.com/iskorotkov/chaos-workflows/pkg/ws"
 	"go.uber.org/zap"
@@ -62,9 +63,9 @@ func watchWS(w http.ResponseWriter, r *http.Request, logger *zap.SugaredLogger) 
 	logger.Info("all workflow events were processed")
 }
 
-func transmitEvents(ctx context.Context, stream watcher.EventStream, socket ws.Websocket, w http.ResponseWriter, logger *zap.SugaredLogger) {
+func transmitEvents(ctx context.Context, stream event.Reader, socket ws.Websocket, w http.ResponseWriter, logger *zap.SugaredLogger) {
 	for {
-		event, err := stream.Next()
+		ev, err := stream.Read()
 		if err == watcher.ErrFinished {
 			logger.Info("all workflow events were read")
 			break
@@ -74,7 +75,7 @@ func transmitEvents(ctx context.Context, stream watcher.EventStream, socket ws.W
 			break
 		}
 
-		if err := socket.Write(ctx, event); err != nil && err != ws.ErrDeadlineExceeded && err != ws.ErrContextCancelled {
+		if err := socket.Write(ctx, ev); err != nil && err != ws.ErrDeadlineExceeded && err != ws.ErrContextCancelled {
 			logger.Error(err)
 			http.Error(w, "error occurred while sending event via websocket", http.StatusInternalServerError)
 			break
@@ -82,7 +83,7 @@ func transmitEvents(ctx context.Context, stream watcher.EventStream, socket ws.W
 	}
 }
 
-func closeStream(stream watcher.EventStream, logger *zap.SugaredLogger) {
+func closeStream(stream event.Reader, logger *zap.SugaredLogger) {
 	if err := stream.Close(); err != nil {
 		logger.Error(err)
 	}

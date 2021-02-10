@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/argoproj/argo/pkg/apiclient/workflow"
+	"github.com/iskorotkov/chaos-workflows/pkg/event"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"io"
@@ -17,7 +18,6 @@ var (
 	ErrServiceCloseFailed    = errors.New("couldn't close service stream")
 	ErrRequestFailed         = errors.New("couldn't start watching updates")
 	ErrReadFailed            = errors.New("couldn't read workflow update")
-	ErrSpecAnalysisFailed    = errors.New("couldn't find step spec")
 	ErrFinished              = errors.New("event stream finished")
 )
 
@@ -38,7 +38,7 @@ func NewWatcher(url string, logger *zap.SugaredLogger) (Watcher, error) {
 	return Watcher{conn: conn, logger: logger}, nil
 }
 
-func (w Watcher) Watch(ctx context.Context, namespace string, name string) (EventStream, error) {
+func (w Watcher) Watch(ctx context.Context, namespace string, name string) (event.Reader, error) {
 	client := workflow.NewWorkflowServiceClient(w.conn)
 
 	request := &workflow.WatchWorkflowsRequest{
@@ -76,28 +76,28 @@ type EventStream struct {
 	logger  *zap.SugaredLogger
 }
 
-func (e EventStream) Next() (Event, error) {
+func (e EventStream) Read() (event.Event, error) {
 	msg, err := e.service.Recv()
 	if err == io.EOF || e.ctx.Err() != nil {
-		return Event{}, ErrFinished
+		return event.Event{}, ErrFinished
 	}
 
 	if err != nil {
 		e.logger.Error(err)
-		return Event{}, ErrReadFailed
+		return event.Event{}, ErrReadFailed
 	}
 
-	event, err := newEvent(msg)
+	ev, err := event.NewEvent(msg)
 	if err != nil {
 		e.logger.Error(err)
-		return Event{}, err
+		return event.Event{}, err
 	}
 
-	if event.Phase != "Running" && event.Phase != "Pending" {
-		return Event{}, ErrFinished
+	if ev.Phase != "Running" && ev.Phase != "Pending" {
+		return event.Event{}, ErrFinished
 	}
 
-	return event, nil
+	return ev, nil
 }
 
 func (e EventStream) Close() error {

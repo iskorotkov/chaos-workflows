@@ -1,6 +1,8 @@
-package watcher
+package event
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"github.com/argoproj/argo/pkg/apiclient/workflow"
 	"github.com/argoproj/argo/pkg/apis/workflow/v1alpha1"
@@ -9,6 +11,25 @@ import (
 	"reflect"
 	"time"
 )
+
+var (
+	ErrSpecAnalysisFailed = errors.New("couldn't find step spec")
+)
+
+type Watcher interface {
+	Watch(ctx context.Context, namespace, name string) (Reader, error)
+	Close() error
+}
+
+type Reader interface {
+	Read() (Event, error)
+	Close() error
+}
+
+type Writer interface {
+	Write(ctx context.Context, ev Event) error
+	Close() error
+}
 
 type Step struct {
 	Name        string            `json:"name,omitempty"`
@@ -139,7 +160,7 @@ func newStage(n v1alpha1.NodeStatus, steps []Step) Stage {
 	}
 }
 
-func newEvent(e *workflow.WorkflowWatchEvent) (Event, error) {
+func NewEvent(e *workflow.WorkflowWatchEvent) (Event, error) {
 	stages, err := buildNodesTree(e.Object.Spec.Templates, nodes(e.Object.Status.Nodes))
 	if err != nil {
 		return Event{}, err
