@@ -2,7 +2,6 @@
 package event
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"github.com/argoproj/argo/pkg/apiclient/workflow"
@@ -20,16 +19,25 @@ var (
 	ErrAlreadyClosed   = errors.New("connection was already closed")
 )
 
-// Reader reads a sequence of workflow events for a specific workflow.
-type Reader interface {
-	Read() (Event, error)
-	Close() error
-}
+// GenerateTestError returns a random error from package.
+func GenerateTestError(rand *rand.Rand) error {
+	eventErrors := map[error]float32{
+		ErrFinished:        0.05,
+		ErrInvalidEvent:    0.05,
+		ErrInternalFailure: 0.05,
+		ErrAlreadyClosed:   0.05,
+	}
 
-// Writer writes a sequence of workflow events for a specific workflow.
-type Writer interface {
-	Write(ctx context.Context, ev Event) error
-	Close() error
+	value := rand.Float32()
+	for k, v := range eventErrors {
+		if v > value {
+			return k
+		}
+
+		value -= v
+	}
+
+	return nil
 }
 
 // Step is a part of a stage.
@@ -43,12 +51,45 @@ type Step struct {
 	FinishedAt  time.Time         `json:"finishedAt,omitempty"`
 }
 
+func (s Step) Generate(rand *rand.Rand, _ int) reflect.Value {
+	f := func(prefix string) string {
+		return fmt.Sprintf("%s-%d", prefix, rand.Intn(10))
+	}
+	return reflect.ValueOf(Step{
+		Name:        f("name"),
+		Type:        f("type"),
+		Phase:       f("phase"),
+		Labels:      map[string]string{"label1": "value1", "label2": "value2"},
+		Annotations: map[string]string{"ann1": "value3", "ann2": "value4"},
+		StartedAt:   time.Time{}.Add(-time.Duration(rand.Intn(10)) * time.Hour),
+		FinishedAt:  time.Time{}.Add(-time.Duration(rand.Intn(10)) * time.Minute),
+	})
+}
+
 // Stage is a part of a workflow.
 type Stage struct {
 	Phase      string    `json:"phase,omitempty"`
 	StartedAt  time.Time `json:"startedAt,omitempty"`
 	FinishedAt time.Time `json:"finishedAt,omitempty"`
 	Steps      []Step    `json:"steps,omitempty"`
+}
+
+func (s Stage) Generate(rand *rand.Rand, size int) reflect.Value {
+	f := func(prefix string) string {
+		return fmt.Sprintf("%s-%d", prefix, rand.Intn(10))
+	}
+
+	var steps []Step
+	for i := 0; i < rand.Intn(10); i++ {
+		steps = append(steps, Step{}.Generate(rand, size).Interface().(Step))
+	}
+
+	return reflect.ValueOf(Stage{
+		Phase:      f("phase"),
+		StartedAt:  time.Time{}.Add(-time.Duration(rand.Intn(10)) * time.Hour),
+		FinishedAt: time.Time{}.Add(-time.Duration(rand.Intn(10)) * time.Minute),
+		Steps:      steps,
+	})
 }
 
 // Event is a workflow update message.
@@ -62,6 +103,29 @@ type Event struct {
 	StartedAt   time.Time         `json:"startedAt,omitempty"`
 	FinishedAt  time.Time         `json:"finishedAt,omitempty"`
 	Stages      []Stage           `json:"stages,omitempty"`
+}
+
+func (e Event) Generate(rand *rand.Rand, size int) reflect.Value {
+	f := func(prefix string) string {
+		return fmt.Sprintf("%s-%d", prefix, rand.Intn(10))
+	}
+
+	var stages []Stage
+	for i := 0; i < rand.Intn(10); i++ {
+		stages = append(stages, Stage{}.Generate(rand, size).Interface().(Stage))
+	}
+
+	return reflect.ValueOf(Event{
+		Name:        f("name"),
+		Namespace:   f("namespace"),
+		Type:        f("type"),
+		Labels:      map[string]string{"label1": "value1", "label2": "value2"},
+		Annotations: map[string]string{"ann1": "value3", "ann2": "value4"},
+		Phase:       f("phase"),
+		StartedAt:   time.Time{}.Add(-time.Duration(rand.Intn(10)) * time.Hour),
+		FinishedAt:  time.Time{}.Add(-time.Duration(rand.Intn(10)) * time.Minute),
+		Stages:      stages,
+	})
 }
 
 type nodes v1alpha1.Nodes
