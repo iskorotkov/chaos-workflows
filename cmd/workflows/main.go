@@ -17,6 +17,16 @@ import (
 )
 
 func main() {
+	// Handle panics.
+	defer func() {
+		r := recover()
+		if r != nil {
+			log.Printf("panic occurred: %v", r)
+			debug.PrintStack()
+			os.Exit(1)
+		}
+	}()
+
 	// Read config.
 	cfg, err := config.FromEnvironment()
 	if err != nil {
