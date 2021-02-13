@@ -8,6 +8,7 @@ import (
 	"github.com/iskorotkov/chaos-workflows/internal/handlers"
 	"github.com/iskorotkov/chaos-workflows/pkg/argo"
 	"github.com/iskorotkov/chaos-workflows/pkg/eventws"
+	_ "go.uber.org/automaxprocs"
 	"go.uber.org/zap"
 	"log"
 	"net/http"
