@@ -48,6 +48,6 @@ func (wf WebsocketFactory) Close() error {
 	return nil
 }
 
-func NewWebsocketFactory() WebsocketFactory {
-	return WebsocketFactory{}
+func NewWebsocketFactory(logger *zap.SugaredLogger) WebsocketFactory {
+	return WebsocketFactory{logger: logger}
 }

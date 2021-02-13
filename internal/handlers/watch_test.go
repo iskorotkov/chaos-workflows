@@ -8,7 +8,6 @@ import (
 	"go.uber.org/zap"
 	"io/ioutil"
 	"math/rand"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -103,27 +102,13 @@ func Test_watchWS(t *testing.T) {
 
 		// Setup router.
 		router := chi.NewRouter()
-		router.Use(func(h http.Handler) http.Handler {
-			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				ctx := r.Context()
-				ctx = context.WithValue(ctx, ContextReaderFactory, &readerFactory)
-				ctx = context.WithValue(ctx, ContextWriterFactory, &writerFactory)
-				r = r.WithContext(ctx)
-				h.ServeHTTP(w, r)
-			})
+		router.Get("/{namespace}/{name}", func(writer http.ResponseWriter, request *http.Request) {
+			watchWS(writer, request, &readerFactory, &writerFactory, zap.NewNop().Sugar())
 		})
-		router.Get("/{namespace}/{name}", withLogger(watchWS, zap.NewNop().Sugar()))
 
 		// Setup test server.
 		ts := httptest.NewServer(router)
 		defer ts.Close()
-
-		ts.Config.BaseContext = func(listener net.Listener) context.Context {
-			ctx := context.Background()
-			ctx = context.WithValue(ctx, ContextReaderFactory, readerFactory)
-			ctx = context.WithValue(ctx, ContextWriterFactory, writerFactory)
-			return ctx
-		}
 
 		// Make a request.
 		requestPath := fmt.Sprintf("/%s/%s", namespace, name)

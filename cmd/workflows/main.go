@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"github.com/go-chi/chi"
 	"github.com/go-chi/chi/middleware"
 	"github.com/go-chi/cors"
@@ -12,6 +11,8 @@ import (
 	"go.uber.org/zap"
 	"log"
 	"net/http"
+	"os"
+	"runtime/debug"
 	"time"
 )
 
@@ -26,55 +27,30 @@ func main() {
 	logger := createLogger(cfg)
 	defer syncLogger(logger)
 
-	logger.Infow("get config from environment", "config", cfg)
+	logger.Infow("config loaded from environment", "config", cfg)
 
-	// Setup external dependencies.
-	wf, rf, err := createReaderWriter(cfg.ArgoServer, logger)
+	logger.Debug("setup external dependencies")
+	rf, wf, err := createReaderWriter(cfg.ArgoServer, logger)
 	if err != nil {
 		logger.Fatal("couldn't create reader and/or writer")
 	}
+	logger.Debugw("all dependencies were initialized", "reader factory", rf, "writer factory", wf)
 
-	r := createRouter(logger)
-	addContextValues(r, cfg, rf, wf)
+	logger.Debug("creating router")
+	r := createRouter(rf, wf, logger)
+	logger.Debug("router created")
 
+	logger.Debug("server started listening")
 	if err = http.ListenAndServe(":8811", r); err != nil {
 		logger.Fatal(err.Error())
 	}
 }
 
-func addContextValues(r *chi.Mux, cfg *config.Config, rf handlers.WriterFactory, wf handlers.ReaderFactory) {
-	r.Use(contextValue("config", cfg))
-	r.Use(contextValue(handlers.ContextReaderFactory, rf))
-	r.Use(contextValue(handlers.ContextWriterFactory, wf))
-}
-
-// contextValue adds key-value pair to context.Context.
-func contextValue(key, value interface{}) func(next http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			r = r.WithContext(context.WithValue(r.Context(), key, value))
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
 // createRouter returns configured chi router.
-func createRouter(logger *zap.SugaredLogger) *chi.Mux {
+func createRouter(rf handlers.ReaderFactory, wf handlers.WriterFactory, logger *zap.SugaredLogger) *chi.Mux {
 	r := chi.NewRouter()
-	setupMiddleware(r)
-	setupRoutes(logger, r)
-	return r
-}
 
-func setupRoutes(logger *zap.SugaredLogger, r *chi.Mux) chi.Router {
-	return r.Route("/api", func(r chi.Router) {
-		r.Route("/v1", func(r chi.Router) {
-			r.Mount("/workflows", handlers.Router(logger.Named("workflows")))
-		})
-	})
-}
-
-func setupMiddleware(r *chi.Mux) {
+	logger.Debug("adding middleware")
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Logger)
@@ -83,6 +59,17 @@ func setupMiddleware(r *chi.Mux) {
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins: []string{"*"},
 	}))
+	logger.Debug("middleware added")
+
+	logger.Debug("setting routes")
+	r.Route("/api", func(r chi.Router) {
+		r.Route("/v1", func(r chi.Router) {
+			r.Mount("/workflows", handlers.Router(rf, wf, logger.Named("workflows")))
+		})
+	})
+	logger.Debug("routes set")
+
+	return r
 }
 
 // createLogger returns configured zap logger.
@@ -119,7 +106,7 @@ func createReaderWriter(writerURL string, logger *zap.SugaredLogger) (handlers.R
 		return nil, nil, err
 	}
 
-	writerF := eventws.NewWebsocketFactory()
+	writerF := eventws.NewWebsocketFactory(logger.Named("websockets"))
 
 	return readerF, writerF, err
 }

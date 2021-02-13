@@ -10,13 +10,6 @@ import (
 	"time"
 )
 
-const (
-	// ContextReaderFactory is a key used for storing reader factory in context.
-	ContextReaderFactory = "reader-factory"
-	// ContextWriterFactory is a key used for storing writer factory in context.
-	ContextWriterFactory = "writer-factory"
-)
-
 // ReaderFactory creates workflow events readers.
 type ReaderFactory interface {
 	New(ctx context.Context, namespace, name string) (event.Reader, error)
@@ -30,8 +23,8 @@ type WriterFactory interface {
 }
 
 // watchWS handles requests to watch workflow events.
-func watchWS(w http.ResponseWriter, r *http.Request, logger *zap.SugaredLogger) {
-	// Parse request.
+func watchWS(w http.ResponseWriter, r *http.Request, rf ReaderFactory, wf WriterFactory, logger *zap.SugaredLogger) {
+	logger.Debug("parse request")
 	namespace, name := chi.URLParam(r, "namespace"), chi.URLParam(r, "name")
 	if namespace == "" || name == "" {
 		msg := "namespace and name must not be empty"
@@ -39,22 +32,12 @@ func watchWS(w http.ResponseWriter, r *http.Request, logger *zap.SugaredLogger) 
 		http.Error(w, msg, http.StatusBadRequest)
 		return
 	}
-
 	logger.Infow("get request params from url", "namespace", namespace, "name", name)
-
-	// Get dependencies.
-	rf, wf, ok := getContextValues(r)
-	if !ok {
-		msg := "couldn't get context values from request context"
-		logger.Error(msg)
-		http.Error(w, msg, http.StatusInternalServerError)
-		return
-	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Hour)
 	defer cancel()
 
-	// Prepare reader.
+	logger.Debug("prepare reader")
 	reader, err := rf.New(ctx, namespace, name)
 	if err != nil {
 		logger.Error(err)
@@ -62,7 +45,7 @@ func watchWS(w http.ResponseWriter, r *http.Request, logger *zap.SugaredLogger) 
 	}
 	defer closeWithLogger(reader, logger)
 
-	// Prepare writer.
+	logger.Debug("prepare writer")
 	writer, err := wf.New(w, r)
 	if err != nil {
 		logger.Error(err)
@@ -74,43 +57,34 @@ func watchWS(w http.ResponseWriter, r *http.Request, logger *zap.SugaredLogger) 
 	logger.Info("all workflow events were processed")
 }
 
-func getContextValues(r *http.Request) (ReaderFactory, WriterFactory, bool) {
-	// Get reader factory
-	rf, ok := r.Context().Value(ContextReaderFactory).(ReaderFactory)
-	if !ok {
-		return nil, nil, false
-	}
-
-	// Get writer factory
-	wf, ok := r.Context().Value(ContextWriterFactory).(WriterFactory)
-	if !ok {
-		return nil, nil, false
-	}
-	return rf, wf, true
-}
-
 // transmitEvents reads events from reader and passes them to writer.
-func transmitEvents(ctx context.Context, stream event.Reader, socket event.Writer, w http.ResponseWriter, logger *zap.SugaredLogger) {
-	for {
-		ev, err := stream.Read()
-		if err == event.ErrFinished {
-			break
-		} else if err != nil {
-			logger.Error(err)
-			http.Error(w, "error occurred while streaming workflow events", http.StatusInternalServerError)
-			break
-		}
+func transmitEvents(ctx context.Context, reader event.Reader, writer event.Writer, w http.ResponseWriter, logger *zap.SugaredLogger) {
+	defer logger.Info("all workflow events were read")
 
-		if err := socket.Write(ctx, ev); err == event.ErrFinished {
-			break
-		} else if err != nil {
-			logger.Error(err)
-			http.Error(w, "error occurred while sending event via websocket", http.StatusInternalServerError)
-			break
+	for {
+		select {
+		case <-ctx.Done():
+			logger.Debug("context was cancelled while transmitting workflow events")
+			return
+		default:
+			ev, err := reader.Read()
+			if err == event.ErrFinished {
+				return
+			} else if err != nil {
+				logger.Error(err)
+				http.Error(w, "error occurred while streaming workflow events", http.StatusInternalServerError)
+				return
+			}
+
+			if err := writer.Write(ctx, ev); err == event.ErrFinished {
+				return
+			} else if err != nil {
+				logger.Error(err)
+				http.Error(w, "error occurred while sending event via websocket", http.StatusInternalServerError)
+				return
+			}
 		}
 	}
-
-	logger.Info("all workflow events were read")
 }
 
 // closeWithLogger closes io.Closer, printing an error if it failed.

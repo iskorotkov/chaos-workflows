@@ -7,20 +7,13 @@ import (
 	"net/http"
 )
 
-type handler func(w http.ResponseWriter, r *http.Request, logger *zap.SugaredLogger)
-
-// withLogger passes additional zap.SugaredLogger to a http.HandlerFunc.
-func withLogger(handler handler, logger *zap.SugaredLogger) http.HandlerFunc {
-	return func(writer http.ResponseWriter, request *http.Request) {
-		handler(writer, request, logger)
-	}
-}
-
 // Router returns configured router.
-func Router(logger *zap.SugaredLogger) http.Handler {
+func Router(rf ReaderFactory, wf WriterFactory, logger *zap.SugaredLogger) http.Handler {
 	r := chi.NewRouter()
 
-	r.Get("/{namespace}/{name}", withLogger(watchWS, logger.Named("watch")))
+	r.Get("/{namespace}/{name}", func(writer http.ResponseWriter, request *http.Request) {
+		watchWS(writer, request, rf, wf, logger.Named("watch"))
+	})
 
 	return r
 }

@@ -27,6 +27,7 @@ func NewWatcher(url string, logger *zap.SugaredLogger) (Watcher, error) {
 		return Watcher{}, event.ErrInternalFailure
 	}
 
+	logger.Debug("argo watcher created successfully")
 	return Watcher{conn: conn, logger: logger}, nil
 }
 
