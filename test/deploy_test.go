@@ -71,7 +71,7 @@ func TestDeploy(t *testing.T) {
 	endpoint := k8s.GetServiceEndpoint(t, serviceOptions, service, 8811)
 
 	//goland:noinspection HttpUrlsUsage
-	url := fmt.Sprintf("http://%s/api/v1/workflows/litmus/this-workflow-does-not-exist", endpoint)
+	url := fmt.Sprintf("http://%s/api/v1/workflows/watch/litmus/this-workflow-does-not-exist", endpoint)
 
 	// Returns error because it can't switch to websocket connection.
 	http_helper.HttpGetWithRetry(t, url, nil, 400, "handshake error: bad \"Upgrade\" header", 10, time.Second)

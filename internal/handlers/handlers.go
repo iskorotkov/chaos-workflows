@@ -11,7 +11,7 @@ import (
 func Router(rf ReaderFactory, wf WriterFactory, logger *zap.SugaredLogger) http.Handler {
 	r := chi.NewRouter()
 
-	r.Get("/{namespace}/{name}", func(writer http.ResponseWriter, request *http.Request) {
+	r.Get("/watch/{namespace}/{name}", func(writer http.ResponseWriter, request *http.Request) {
 		watchWS(writer, request, rf, wf, logger.Named("watch"))
 	})
 
