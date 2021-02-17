@@ -27,9 +27,8 @@ func watchWS(w http.ResponseWriter, r *http.Request, rf ReaderFactory, wf Writer
 	logger.Debug("parse request")
 	namespace, name := chi.URLParam(r, "namespace"), chi.URLParam(r, "name")
 	if namespace == "" || name == "" {
-		msg := "namespace and name must not be empty"
-		logger.Infow(msg, "namespace", namespace, "name", name)
-		http.Error(w, msg, http.StatusBadRequest)
+		logger.Infow("namespace and name must not be empty", "namespace", namespace, "name", name)
+		http.Error(w, "namespace and name must not be empty", http.StatusNotFound)
 		return
 	}
 	logger.Infow("get request params from url", "namespace", namespace, "name", name)
@@ -41,7 +40,8 @@ func watchWS(w http.ResponseWriter, r *http.Request, rf ReaderFactory, wf Writer
 	reader, err := rf.New(ctx, namespace, name)
 	if err != nil {
 		logger.Error(err)
-		http.Error(w, "couldn't start event stream", http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 	defer closeWithLogger(reader, logger)
 
@@ -49,16 +49,17 @@ func watchWS(w http.ResponseWriter, r *http.Request, rf ReaderFactory, wf Writer
 	writer, err := wf.New(w, r)
 	if err != nil {
 		logger.Error(err)
-		http.Error(w, "couldn't start event stream", http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 	defer closeWithLogger(writer, logger)
 
-	transmitEvents(ctx, reader, writer, w, logger)
+	transmitEvents(ctx, reader, writer, logger)
 	logger.Info("all workflow events were processed")
 }
 
 // transmitEvents reads events from reader and passes them to writer.
-func transmitEvents(ctx context.Context, reader event.Reader, writer event.Writer, w http.ResponseWriter, logger *zap.SugaredLogger) {
+func transmitEvents(ctx context.Context, reader event.Reader, writer event.Writer, logger *zap.SugaredLogger) {
 	defer logger.Info("all workflow events were read")
 
 	for {
@@ -68,19 +69,21 @@ func transmitEvents(ctx context.Context, reader event.Reader, writer event.Write
 			return
 		default:
 			ev, err := reader.Read()
-			if err == event.ErrFinished {
+			if err == event.ErrLastEvent {
+				// Send last message and close.
+				if err := writer.Write(ctx, ev); err != nil && err != event.ErrTimeout {
+					logger.Error(err)
+				}
 				return
 			} else if err != nil {
 				logger.Error(err)
-				http.Error(w, "error occurred while streaming workflow events", http.StatusInternalServerError)
 				return
 			}
 
-			if err := writer.Write(ctx, ev); err == event.ErrFinished {
+			if err := writer.Write(ctx, ev); err == event.ErrTimeout {
 				return
 			} else if err != nil {
 				logger.Error(err)
-				http.Error(w, "error occurred while sending event via websocket", http.StatusInternalServerError)
 				return
 			}
 		}

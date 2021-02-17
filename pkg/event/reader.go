@@ -22,7 +22,7 @@ type TestReader struct {
 
 func (t TestReader) Generate(rand *rand.Rand, size int) reflect.Value {
 	var events []Event
-	for i := 0; i < rand.Intn(10); i++ {
+	for i := 0; i < 1+rand.Intn(10); i++ {
 		events = append(events, Event{}.Generate(rand, size).Interface().(Event))
 	}
 
@@ -38,12 +38,13 @@ func (t *TestReader) Read() (Event, error) {
 		return Event{}, t.ErrRead
 	}
 
-	if len(t.Events) == 0 {
-		return Event{}, ErrFinished
-	}
-
 	e := t.Events[0]
 	t.Events = t.Events[1:]
+
+	if len(t.Events) == 0 {
+		return e, ErrLastEvent
+	}
+
 	return e, nil
 }
 

@@ -6,7 +6,6 @@ import (
 	"github.com/go-chi/chi"
 	"github.com/iskorotkov/chaos-workflows/pkg/event"
 	"go.uber.org/zap"
-	"io/ioutil"
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
@@ -77,25 +76,13 @@ func Test_watchWS(t *testing.T) {
 	t.Parallel()
 	r := rand.New(rand.NewSource(0))
 
-	EOFError := func(readerFactory TestReaderFactory, writerFactory TestWriterFactory) bool {
-		return readerFactory.Reader.ErrRead == event.ErrFinished ||
-			writerFactory.Writer.ErrWrite == event.ErrFinished
-	}
-
 	readWriteError := func(readerFactory TestReaderFactory, writerFactory TestWriterFactory) bool {
 		return readerFactory.ErrNew != nil ||
 			writerFactory.ErrNew != nil ||
-			readerFactory.Reader.ErrRead != nil && readerFactory.Reader.ErrRead != event.ErrFinished ||
-			writerFactory.Writer.ErrWrite != nil && writerFactory.Writer.ErrWrite != event.ErrFinished
+			readerFactory.Reader.ErrRead != nil && readerFactory.Reader.ErrRead != event.ErrLastEvent ||
+			writerFactory.Writer.ErrWrite != nil && writerFactory.Writer.ErrWrite != event.ErrLastEvent
 	}
-
-	closeError := func(readerFactory TestReaderFactory, writerFactory TestWriterFactory) bool {
-		err := readerFactory.ErrClose != nil ||
-			writerFactory.ErrClose != nil ||
-			readerFactory.Reader.ErrClose != nil ||
-			writerFactory.Writer.ErrClose != nil
-		return err
-	}
+	_ = readWriteError
 
 	f := func(readerFactory TestReaderFactory, writerFactory TestWriterFactory, namespace, name string) bool {
 		events := readerFactory.Reader.Events
@@ -118,57 +105,84 @@ func Test_watchWS(t *testing.T) {
 			return false
 		}
 
-		// Read response.
-		body, err := ioutil.ReadAll(resp.Body)
-		if err != nil {
-			t.Error("couldn't read response body")
+		eventsSent := writerFactory.Writer.Events
+
+		// If input parameters are invalid.
+		if name == "" || namespace == "" {
+			if len(eventsSent) == 0 && resp.StatusCode == http.StatusNotFound {
+				t.Log("name or namespace was empty")
+				return true
+			} else {
+				t.Log("name or namespace was empty but handler didn't return correct error")
+				return false
+			}
+		}
+
+		// Check if all params were passed correctly.
+		if readerFactory.Name != name || readerFactory.Namespace != namespace {
+			t.Log("name or namespace was not passed to reader factory")
 			return false
 		}
-		message := string(body)
+
+		// If reader/writer creation failed.
+		if readerFactory.ErrNew != nil || writerFactory.ErrNew != nil {
+			if len(eventsSent) == 0 && resp.StatusCode == http.StatusInternalServerError {
+				t.Logf("reader/writer creation failed")
+				return true
+			} else {
+				t.Logf("reader/writer creation failed but handler didn't return correct error")
+				return false
+			}
+		}
+
+		// If reading failed.
+		if readerFactory.Reader.ErrRead != nil &&
+			readerFactory.Reader.ErrRead != event.ErrLastEvent {
+			if len(eventsSent) == 0 {
+				t.Logf("reading failed")
+				return true
+			} else {
+				t.Logf("reading failed but handler didn't return correct error")
+				return false
+			}
+		}
+
+		// If writing failed.
+		if writerFactory.Writer.ErrWrite != nil {
+			if len(eventsSent) == 1 {
+				t.Logf("writing failed")
+				return true
+			} else {
+				t.Logf("writing failed but handler didn't return correct error")
+				return false
+			}
+		}
 
 		// Check response.
-		if resp.StatusCode == http.StatusOK {
-			if readWriteError(readerFactory, writerFactory) && len(readerFactory.Reader.Events) > 0 {
-				t.Error("200 returned when read or write error occurred")
-				return false
-			} else if namespace == "" || name == "" {
-				t.Errorf("200 returned when namespace or name is empty: '%s'/'%s'", namespace, name)
-				return false
-			} else if readerFactory.Namespace != namespace || readerFactory.Name != name {
-				t.Errorf("namespace or name doesn't match")
-				return false
-			}
-		} else if resp.StatusCode == http.StatusBadRequest {
-			if name == "" || namespace == "" {
-				t.Log("namespace or name is empty")
-				return true
-			} else {
-				t.Errorf("bad request: %s", message)
-				return false
-			}
-		} else if resp.StatusCode == http.StatusInternalServerError {
-			if readWriteError(readerFactory, writerFactory) {
-				t.Log("error occurred during reading or writing")
-				return true
-			} else if closeError(readerFactory, writerFactory) {
-				t.Log("error occurred during closing of reader or writer")
-			} else {
-				t.Errorf("500 returned when no error was returned: %s", message)
-				return false
-			}
-		} else {
-			t.Errorf("handler returned invalid response code %d", resp.StatusCode)
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("returned status code: %d", resp.StatusCode)
 			return false
 		}
 
-		// Check whether all events were passed from reader to writer.
-		eventsSent := writerFactory.Writer.Events
-		if !reflect.DeepEqual(events, eventsSent) && !EOFError(readerFactory, writerFactory) {
+		// If sent extra events.
+		if len(eventsSent) > len(events) {
+			t.Errorf("sent more events that was read: %d > %d", len(eventsSent), len(events))
+			return false
+		}
+
+		// If dropped some events.
+		if !reflect.DeepEqual(events, eventsSent) && readerFactory.Reader.ErrRead != event.ErrLastEvent {
 			t.Errorf("events were not passed correctly: %d read, %d sent", len(events), len(eventsSent))
 			return false
 		}
 
-		t.Logf("succeeded: %d events", len(eventsSent))
+		// If reader or writer wasn't closed.
+		if !readerFactory.Reader.Closed || !writerFactory.Writer.Closed {
+			t.Error("reader or writer wasn't closed")
+			return false
+		}
+
+		t.Logf("succeeded: %d/%d events", len(eventsSent), len(events))
 		return true
 	}
 

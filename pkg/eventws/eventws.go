@@ -14,7 +14,7 @@ type eventWebsocket ws.Websocket
 
 func (ew eventWebsocket) Write(ctx context.Context, ev event.Event) error {
 	if err := ws.Websocket(ew).Write(ctx, ev); err == ws.ErrDeadlineExceeded || err == ws.ErrContextCancelled {
-		return event.ErrFinished
+		return event.ErrLastEvent
 	} else if err != nil {
 		return event.ErrInternalFailure
 	}
@@ -23,7 +23,7 @@ func (ew eventWebsocket) Write(ctx context.Context, ev event.Event) error {
 
 func (ew eventWebsocket) Close() error {
 	if err := ws.Websocket(ew).Close(); err == ws.ErrDeadlineExceeded || err == ws.ErrContextCancelled {
-		return event.ErrFinished
+		return event.ErrLastEvent
 	} else if err != nil {
 		return event.ErrInternalFailure
 	}

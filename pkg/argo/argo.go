@@ -44,7 +44,7 @@ func (w Watcher) New(ctx context.Context, namespace string, name string) (event.
 	}
 
 	return eventStream{
-		ctx: ctx,
+		ctx:     ctx,
 		service: service,
 		logger:  w.logger.Named(fmt.Sprintf("%s-%s", namespace, name)),
 	}, nil
@@ -69,8 +69,10 @@ type eventStream struct {
 
 func (e eventStream) Read() (event.Event, error) {
 	msg, err := e.service.Recv()
-	if err == io.EOF || e.ctx.Err() != nil {
-		return event.Event{}, event.ErrFinished
+	if err == io.EOF {
+		return event.Event{}, event.ErrLastEvent
+	} else if e.ctx.Err() != nil {
+		return event.Event{}, event.ErrTimeout
 	} else if err != nil {
 		e.logger.Error(err)
 		return event.Event{}, event.ErrInternalFailure
@@ -83,7 +85,7 @@ func (e eventStream) Read() (event.Event, error) {
 	}
 
 	if ev.Phase != "Running" && ev.Phase != "Pending" {
-		return event.Event{}, event.ErrFinished
+		return ev, event.ErrLastEvent
 	}
 
 	return ev, nil
