@@ -44,6 +44,7 @@ func (w Watcher) New(ctx context.Context, namespace string, name string) (event.
 	}
 
 	return eventStream{
+		ctx: ctx,
 		service: service,
 		logger:  w.logger.Named(fmt.Sprintf("%s-%s", namespace, name)),
 	}, nil
