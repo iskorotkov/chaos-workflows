@@ -54,7 +54,7 @@ spec:
       serviceAccountName: chaos-framework-sa
       containers:
         - name: workflows
-          image: iskorotkov/chaos-workflows:v0.1.0-alpha.1
+          image: iskorotkov/chaos-workflows:v0.1.0
           ports:
             - name: web
               containerPort: 8811
