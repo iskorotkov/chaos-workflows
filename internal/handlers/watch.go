@@ -69,9 +69,9 @@ func transmitEvents(ctx context.Context, reader event.Reader, writer event.Write
 			return
 		default:
 			ev, err := reader.Read()
-			if err == event.ErrLastEvent {
+			if err == event.ErrAllRead {
 				// Send last message and close.
-				if err := writer.Write(ctx, ev); err != nil && err != event.ErrTimeout {
+				if err := writer.Write(ctx, ev); err != nil && err != event.ErrDeadlineExceeded {
 					logger.Error(err)
 				}
 				return
@@ -80,7 +80,7 @@ func transmitEvents(ctx context.Context, reader event.Reader, writer event.Write
 				return
 			}
 
-			if err := writer.Write(ctx, ev); err == event.ErrTimeout {
+			if err := writer.Write(ctx, ev); err == event.ErrDeadlineExceeded {
 				return
 			} else if err != nil {
 				logger.Error(err)

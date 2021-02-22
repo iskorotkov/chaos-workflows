@@ -42,7 +42,7 @@ func (t *TestReader) Read() (Event, error) {
 	t.Events = t.Events[1:]
 
 	if len(t.Events) == 0 {
-		return e, ErrLastEvent
+		return e, ErrAllRead
 	}
 
 	return e, nil

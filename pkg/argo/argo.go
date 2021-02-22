@@ -24,7 +24,7 @@ func NewWatcher(url string, logger *zap.SugaredLogger) (Watcher, error) {
 	conn, err := grpc.Dial(url, grpc.WithInsecure())
 	if err != nil {
 		logger.Errorw(err.Error(), "url", url)
-		return Watcher{}, event.ErrInternalFailure
+		return Watcher{}, event.ErrConnectionFailed
 	}
 
 	logger.Debug("argo watcher created successfully")
@@ -40,7 +40,7 @@ func (w Watcher) New(ctx context.Context, namespace string, name string) (event.
 	})
 	if err != nil {
 		w.logger.Errorw(err.Error(), "selector", fmt.Sprintf("metadata.name=%s", name))
-		return eventStream{}, event.ErrInternalFailure
+		return eventStream{}, event.ErrConnectionFailed
 	}
 
 	return eventStream{
@@ -54,7 +54,7 @@ func (w Watcher) Close() error {
 	w.logger.Info("closing argo gRPC connection")
 	if err := w.conn.Close(); err != nil {
 		w.logger.Error(err)
-		return event.ErrInternalFailure
+		return event.ErrConnectionFailed
 	}
 
 	return nil
@@ -70,12 +70,12 @@ type eventStream struct {
 func (e eventStream) Read() (event.Event, error) {
 	msg, err := e.service.Recv()
 	if err == io.EOF {
-		return event.Event{}, event.ErrLastEvent
+		return event.Event{}, event.ErrAllRead
 	} else if e.ctx.Err() != nil {
-		return event.Event{}, event.ErrTimeout
+		return event.Event{}, event.ErrDeadlineExceeded
 	} else if err != nil {
 		e.logger.Error(err)
-		return event.Event{}, event.ErrInternalFailure
+		return event.Event{}, event.ErrConnectionFailed
 	}
 
 	ev, ok := event.ToCustomEvent(msg)
@@ -85,7 +85,7 @@ func (e eventStream) Read() (event.Event, error) {
 	}
 
 	if ev.Phase != "Running" && ev.Phase != "Pending" {
-		return ev, event.ErrLastEvent
+		return ev, event.ErrAllRead
 	}
 
 	return ev, nil
@@ -94,7 +94,7 @@ func (e eventStream) Read() (event.Event, error) {
 func (e eventStream) Close() error {
 	if err := e.service.CloseSend(); err != nil {
 		e.logger.Error(err)
-		return event.ErrAlreadyClosed
+		return nil
 	}
 
 	return nil

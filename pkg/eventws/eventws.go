@@ -3,45 +3,57 @@ package eventws
 
 import (
 	"context"
+	"github.com/gorilla/websocket"
 	"github.com/iskorotkov/chaos-workflows/pkg/event"
-	"github.com/iskorotkov/chaos-workflows/pkg/ws"
 	"go.uber.org/zap"
 	"net/http"
 )
 
 // eventWebsocket is a websocket wrapper for sending workflow events.
-type eventWebsocket ws.Websocket
+type eventWebsocket struct {
+	conn   *websocket.Conn
+	logger *zap.SugaredLogger
+}
 
 func (ew eventWebsocket) Write(ctx context.Context, ev event.Event) error {
-	if err := ws.Websocket(ew).Write(ctx, ev); err == ws.ErrDeadlineExceeded || err == ws.ErrContextCancelled {
-		return event.ErrLastEvent
-	} else if err != nil {
-		return event.ErrInternalFailure
+	if deadline, ok := ctx.Deadline(); ok {
+		if err := ew.conn.SetWriteDeadline(deadline); err != nil {
+			ew.logger.Error(err)
+			return event.ErrConnectionFailed
+		}
 	}
+
+	if err := ew.conn.WriteJSON(ev); err != nil {
+		ew.logger.Error(err)
+		return event.ErrConnectionFailed
+	}
+
 	return nil
 }
 
 func (ew eventWebsocket) Close() error {
-	if err := ws.Websocket(ew).Close(); err == ws.ErrDeadlineExceeded || err == ws.ErrContextCancelled {
-		return event.ErrLastEvent
-	} else if err != nil {
-		return event.ErrInternalFailure
+	if err := ew.Close(); err != nil {
+		ew.logger.Warnf("websocket was closed with error: %s", err)
 	}
 	return nil
 }
 
 type WebsocketFactory struct {
-	logger *zap.SugaredLogger
+	upgrader websocket.Upgrader
+	logger   *zap.SugaredLogger
 }
 
 func (wf WebsocketFactory) New(w http.ResponseWriter, r *http.Request) (event.Writer, error) {
-	socket, err := ws.NewWebsocket(w, r, wf.logger.Named("websocket"))
+	conn, err := wf.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		wf.logger.Error(err)
-		return nil, event.ErrInternalFailure
+		return nil, event.ErrConnectionFailed
 	}
 
-	return eventWebsocket(socket), nil
+	return eventWebsocket{
+		conn:   conn,
+		logger: wf.logger.Named("websocket"),
+	}, nil
 }
 
 func (wf WebsocketFactory) Close() error {
@@ -49,5 +61,11 @@ func (wf WebsocketFactory) Close() error {
 }
 
 func NewWebsocketFactory(logger *zap.SugaredLogger) WebsocketFactory {
-	return WebsocketFactory{logger: logger}
+	return WebsocketFactory{
+		upgrader: websocket.Upgrader{
+			ReadBufferSize:  1024,
+			WriteBufferSize: 1024,
+		},
+		logger: logger,
+	}
 }

@@ -79,8 +79,8 @@ func Test_watchWS(t *testing.T) {
 	readWriteError := func(readerFactory TestReaderFactory, writerFactory TestWriterFactory) bool {
 		return readerFactory.ErrNew != nil ||
 			writerFactory.ErrNew != nil ||
-			readerFactory.Reader.ErrRead != nil && readerFactory.Reader.ErrRead != event.ErrLastEvent ||
-			writerFactory.Writer.ErrWrite != nil && writerFactory.Writer.ErrWrite != event.ErrLastEvent
+			readerFactory.Reader.ErrRead != nil && readerFactory.Reader.ErrRead != event.ErrAllRead ||
+			writerFactory.Writer.ErrWrite != nil && writerFactory.Writer.ErrWrite != event.ErrAllRead
 	}
 	_ = readWriteError
 
@@ -137,7 +137,7 @@ func Test_watchWS(t *testing.T) {
 
 		// If reading failed.
 		if readerFactory.Reader.ErrRead != nil &&
-			readerFactory.Reader.ErrRead != event.ErrLastEvent {
+			readerFactory.Reader.ErrRead != event.ErrAllRead {
 			if len(eventsSent) == 0 {
 				t.Logf("reading failed")
 				return true
@@ -171,7 +171,7 @@ func Test_watchWS(t *testing.T) {
 		}
 
 		// If dropped some events.
-		if !reflect.DeepEqual(events, eventsSent) && readerFactory.Reader.ErrRead != event.ErrLastEvent {
+		if !reflect.DeepEqual(events, eventsSent) && readerFactory.Reader.ErrRead != event.ErrAllRead {
 			t.Errorf("events were not passed correctly: %d read, %d sent", len(events), len(eventsSent))
 			return false
 		}

@@ -13,21 +13,19 @@ import (
 )
 
 var (
-	ErrLastEvent       = errors.New("no more events available")
-	ErrTimeout         = errors.New("streaming was finished due to a timeout")
-	ErrInvalidEvent    = errors.New("event was in invalid format")
-	ErrInternalFailure = errors.New("internal error occurred")
-	ErrAlreadyClosed   = errors.New("connection was already closed")
+	ErrAllRead          = errors.New("no more events available")
+	ErrDeadlineExceeded = errors.New("streaming was finished due to a timeout")
+	ErrInvalidEvent     = errors.New("event was in invalid format")
+	ErrConnectionFailed = errors.New("couldn't establish connection to external service")
 )
 
 // GenerateTestError returns a random error from package.
 func GenerateTestError(rand *rand.Rand) error {
 	eventErrors := map[error]float32{
-		ErrLastEvent:       0.05,
-		ErrTimeout:         0.05,
-		ErrInvalidEvent:    0.05,
-		ErrInternalFailure: 0.05,
-		ErrAlreadyClosed:   0.05,
+		ErrAllRead:          0.05,
+		ErrDeadlineExceeded: 0.05,
+		ErrInvalidEvent:     0.05,
+		ErrConnectionFailed: 0.05,
 	}
 
 	value := rand.Float32()
