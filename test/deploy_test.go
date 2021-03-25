@@ -2,7 +2,8 @@ package test
 
 import (
 	"fmt"
-	"github.com/gruntwork-io/terratest/modules/http-helper"
+	"github.com/gorilla/websocket"
+	http_helper "github.com/gruntwork-io/terratest/modules/http-helper"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/shell"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -25,11 +26,13 @@ func TestDeploy(t *testing.T) {
 	defaultOptions := k8s.NewKubectlOptions("", "", "default")
 	serviceOptions := k8s.NewKubectlOptions("", "", namespace)
 
-	t.Logf("Building image: %s", image)
-	shell.RunCommand(t, shell.Command{
-		WorkingDir: "../.",
-		Command:    "docker",
-		Args:       []string{"build", "-f", "./build/workflows.dockerfile", "-t", image, "."},
+	t.Run("docker image can be built", func(t *testing.T) {
+		t.Logf("Building image: %s", image)
+		shell.RunCommand(t, shell.Command{
+			WorkingDir: "../.",
+			Command:    "docker",
+			Args:       []string{"build", "-f", "./build/workflows.dockerfile", "-t", image, "."},
+		})
 	})
 
 	t.Logf("Pushing image: %s", image)
@@ -44,7 +47,7 @@ func TestDeploy(t *testing.T) {
 	t.Logf("Preparing YAML manifest file")
 	tpl, err := template.ParseFiles(path.Join("../", "./deploy/workflows-test.yaml"))
 	if err != nil {
-		panic(err)
+		t.Fatal(err)
 	}
 
 	var builder strings.Builder
@@ -52,7 +55,7 @@ func TestDeploy(t *testing.T) {
 		Image     string
 		Namespace string
 	}{image, namespace}); err != nil {
-		panic(err)
+		t.Fatal(err)
 	}
 
 	t.Logf("Creating namespace: %s", namespace)
@@ -63,9 +66,13 @@ func TestDeploy(t *testing.T) {
 	k8s.KubectlApplyFromString(t, serviceOptions, builder.String())
 	defer k8s.KubectlDeleteFromString(t, serviceOptions, builder.String())
 
-	k8s.WaitUntilNumPodsCreated(t, serviceOptions, v1.ListOptions{}, 1, 10, time.Second)
+	t.Run("all pods are created", func(t *testing.T) {
+		k8s.WaitUntilNumPodsCreated(t, serviceOptions, v1.ListOptions{}, 1, 10, time.Second)
+	})
 
-	k8s.WaitUntilServiceAvailable(t, serviceOptions, "workflows", 10, time.Second)
+	t.Run("service is available", func(t *testing.T) {
+		k8s.WaitUntilServiceAvailable(t, serviceOptions, "workflows", 10, time.Second)
+	})
 
 	service := k8s.GetService(t, serviceOptions, "workflows")
 	endpoint := k8s.GetServiceEndpoint(t, serviceOptions, service, 8811)
@@ -73,6 +80,46 @@ func TestDeploy(t *testing.T) {
 	//goland:noinspection HttpUrlsUsage
 	url := fmt.Sprintf("http://%s/api/v1/workflows/watch/litmus/this-workflow-does-not-exist", endpoint)
 
-	// Returns error because it can't switch to websocket connection.
-	http_helper.HttpGetWithRetry(t, url, nil, 400, "handshake error: bad \"Upgrade\" header", 10, time.Second)
+	t.Run("http connection fails because it can't switch to websocket connection", func(t *testing.T) {
+		http_helper.HttpGetWithRetry(t, url, nil, 400, "handshake error: bad \"Upgrade\" header", 10, time.Second)
+	})
+
+	t.Run("websocket connection fails when workflow doesn't exist", func(t *testing.T) {
+		wsConnection(t, url)
+	})
+}
+
+func TestDeployed(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test skipped")
+	}
+
+	options := k8s.NewKubectlOptions("", "", "chaos-framework")
+	service := k8s.GetService(t, options, "workflows")
+	endpoint := k8s.GetServiceEndpoint(t, options, service, 8811)
+	url := fmt.Sprintf("ws://%s/api/v1/workflows/watch/litmus/this-workflow-does-not-exist", endpoint)
+
+	t.Run("websocket connection fails when workflow doesn't exist", func(t *testing.T) {
+		wsConnection(t, url)
+	})
+}
+
+func wsConnection(t *testing.T, url string) {
+	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer func(conn *websocket.Conn) {
+		if err := conn.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}(conn)
+
+	_ = resp
+
+	m := make(map[string]interface{})
+	if err := conn.ReadJSON(m); err != nil {
+		t.Fatal(err)
+	}
 }
