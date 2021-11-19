@@ -2,11 +2,12 @@ package event
 
 import (
 	"errors"
-	"github.com/argoproj/argo/pkg/apis/workflow/v1alpha1"
 	"math/rand"
 	"testing"
 	"testing/quick"
 	"time"
+
+	"github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
 )
 
 func validateTime(start time.Time, finish time.Time) error {

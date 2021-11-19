@@ -4,35 +4,55 @@ package argo
 import (
 	"context"
 	"fmt"
-	"github.com/argoproj/argo/pkg/apiclient/workflow"
+	"io"
+	"time"
+
+	"github.com/argoproj/argo-workflows/v3/pkg/apiclient"
+	"github.com/argoproj/argo-workflows/v3/pkg/apiclient/workflow"
 	"github.com/iskorotkov/chaos-workflows/pkg/event"
 	"go.uber.org/zap"
-	"google.golang.org/grpc"
-	"io"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // Watcher creates Argo events readers.
 type Watcher struct {
-	conn   *grpc.ClientConn
+	client apiclient.Client
 	logger *zap.SugaredLogger
 }
 
 func NewWatcher(url string, logger *zap.SugaredLogger) (Watcher, error) {
 	logger.Info("opening argo gRPC connection")
 
-	conn, err := grpc.Dial(url, grpc.WithInsecure())
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*15)
+	defer cancel()
+
+	_, apiClient, err := apiclient.NewClientFromOpts(apiclient.Opts{
+		ArgoServerOpts: apiclient.ArgoServerOpts{
+			URL:                url,
+			Path:               "",
+			Secure:             true,
+			InsecureSkipVerify: true,
+			HTTP1:              false,
+		},
+		InstanceID: "",
+		AuthSupplier: func() string {
+			return ""
+		},
+		ClientConfigSupplier: nil,
+		Offline:              false,
+		Context:              ctx,
+	})
 	if err != nil {
 		logger.Errorw(err.Error(), "url", url)
 		return Watcher{}, event.ErrConnectionFailed
 	}
 
 	logger.Debug("argo watcher created successfully")
-	return Watcher{conn: conn, logger: logger}, nil
+	return Watcher{client: apiClient, logger: logger}, nil
 }
 
 func (w Watcher) New(ctx context.Context, namespace string, name string) (event.Reader, error) {
-	service, err := workflow.NewWorkflowServiceClient(w.conn).WatchWorkflows(ctx, &workflow.WatchWorkflowsRequest{
+	service, err := w.client.NewWorkflowServiceClient().WatchWorkflows(ctx, &workflow.WatchWorkflowsRequest{
 		Namespace: namespace,
 		ListOptions: &v1.ListOptions{
 			FieldSelector: fmt.Sprintf("metadata.name=%s", name),
@@ -51,12 +71,6 @@ func (w Watcher) New(ctx context.Context, namespace string, name string) (event.
 }
 
 func (w Watcher) Close() error {
-	w.logger.Info("closing argo gRPC connection")
-	if err := w.conn.Close(); err != nil {
-		w.logger.Error(err)
-		return event.ErrConnectionFailed
-	}
-
 	return nil
 }
 
