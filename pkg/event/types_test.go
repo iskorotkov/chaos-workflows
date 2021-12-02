@@ -10,8 +10,8 @@ import (
 	"github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
 )
 
-func validateTime(start time.Time, finish time.Time) error {
-	if !start.Before(finish) {
+func validateTime(start time.Time, finish *time.Time) error {
+	if !start.Before(*finish) {
 		return errors.New("start time must be before finish time")
 	}
 
@@ -34,7 +34,7 @@ func Test_buildNodesTree(t *testing.T) {
 		}
 
 		for _, stage := range stages {
-			if stage.Phase == "" {
+			if stage.Status == "" {
 				t.Log("stage phase must not be empty")
 				return false
 			}
@@ -51,7 +51,7 @@ func Test_buildNodesTree(t *testing.T) {
 				}
 
 				if step.Name == "" ||
-					step.Phase == "" ||
+					step.Status == "" ||
 					step.Type == "" {
 					t.Log("step name, phase and type must not be empty")
 					return false

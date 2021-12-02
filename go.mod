@@ -10,7 +10,6 @@ require (
 	github.com/PuerkitoBio/purell v1.1.1 // indirect
 	github.com/PuerkitoBio/urlesc v0.0.0-20170810143723-de5bf2ad4578 // indirect
 	github.com/antonmedv/expr v1.8.9 // indirect
-	github.com/argoproj/argo v2.5.2+incompatible
 	github.com/argoproj/argo-events v1.4.0 // indirect
 	github.com/argoproj/argo-workflows/v3 v3.2.4
 	github.com/argoproj/pkg v0.11.0 // indirect
@@ -38,7 +37,7 @@ require (
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/google/go-cmp v0.5.6 // indirect
-	github.com/google/gofuzz v1.1.0 // indirect
+	github.com/google/gofuzz v1.2.0 // indirect
 	github.com/google/uuid v1.1.2 // indirect
 	github.com/googleapis/gnostic v0.5.1 // indirect
 	github.com/gorilla/websocket v1.4.2

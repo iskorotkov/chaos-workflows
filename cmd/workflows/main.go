@@ -1,6 +1,12 @@
 package main
 
 import (
+	"log"
+	"net/http"
+	"os"
+	"runtime/debug"
+	"time"
+
 	"github.com/go-chi/chi"
 	"github.com/go-chi/chi/middleware"
 	"github.com/go-chi/cors"
@@ -10,11 +16,6 @@ import (
 	"github.com/iskorotkov/chaos-workflows/pkg/eventws"
 	_ "go.uber.org/automaxprocs"
 	"go.uber.org/zap"
-	"log"
-	"net/http"
-	"os"
-	"runtime/debug"
-	"time"
 )
 
 func main() {
@@ -41,14 +42,18 @@ func main() {
 	logger.Infow("config loaded from environment", "config", cfg)
 
 	logger.Debug("setup external dependencies")
-	rf, wf, err := createReaderWriter(cfg.ArgoServer, logger)
+	argoClient, err := argo.NewClient(cfg.ArgoServer, logger.Named("argo"))
 	if err != nil {
 		logger.Fatal("couldn't create reader and/or writer")
 	}
-	logger.Debugw("all dependencies were initialized", "reader factory", rf, "writer factory", wf)
+
+	wsFactory := eventws.NewWebsocketFactory(logger.Named("websockets"))
+	logger.Debugw("all dependencies were initialized",
+		"argo client", argoClient,
+		"websocket factory", wsFactory)
 
 	logger.Debug("creating router")
-	r := createRouter(rf, wf, logger)
+	r := createRouter(argoClient, wsFactory, logger)
 	logger.Debug("router created")
 
 	logger.Debug("server started listening")
@@ -58,7 +63,7 @@ func main() {
 }
 
 // createRouter returns configured chi router.
-func createRouter(rf handlers.ReaderFactory, wf handlers.WriterFactory, logger *zap.SugaredLogger) *chi.Mux {
+func createRouter(argoClient argo.Client, wsFactory eventws.WebsocketFactory, logger *zap.SugaredLogger) *chi.Mux {
 	r := chi.NewRouter()
 
 	logger.Debug("adding middleware")
@@ -75,7 +80,7 @@ func createRouter(rf handlers.ReaderFactory, wf handlers.WriterFactory, logger *
 	logger.Debug("setting routes")
 	r.Route("/api", func(r chi.Router) {
 		r.Route("/v1", func(r chi.Router) {
-			r.Mount("/workflows", handlers.Router(rf, wf, logger.Named("workflows")))
+			r.Mount("/workflows", handlers.WorkflowsRouter(argoClient, wsFactory, logger.Named("workflows")))
 		})
 	})
 	logger.Debug("routes set")
@@ -108,16 +113,4 @@ func syncLogger(logger *zap.SugaredLogger) {
 	if err != nil {
 		log.Fatal(err.Error())
 	}
-}
-
-// createReaderWriter creates reader and writer for streaming workflow events.
-func createReaderWriter(writerURL string, logger *zap.SugaredLogger) (handlers.ReaderFactory, handlers.WriterFactory, error) {
-	readerF, err := argo.NewWatcher(writerURL, logger.Named("argo"))
-	if err != nil {
-		return nil, nil, err
-	}
-
-	writerF := eventws.NewWebsocketFactory(logger.Named("websockets"))
-
-	return readerF, writerF, err
 }

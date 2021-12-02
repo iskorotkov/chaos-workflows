@@ -8,13 +8,13 @@ import (
 
 // Writer writes a sequence of workflow events for a specific workflow.
 type Writer interface {
-	Write(ctx context.Context, ev Event) error
+	Write(ctx context.Context, ev Workflow) error
 	Close() error
 }
 
 // TestWriter mocks Writer interface.
 type TestWriter struct {
-	Events   []Event
+	Events   []Workflow
 	ErrWrite error
 
 	Closed   bool
@@ -28,7 +28,7 @@ func (t TestWriter) Generate(rand *rand.Rand, _ int) reflect.Value {
 	})
 }
 
-func (t *TestWriter) Write(_ context.Context, ev Event) error {
+func (t *TestWriter) Write(_ context.Context, ev Workflow) error {
 	t.Events = append(t.Events, ev)
 	return t.ErrWrite
 }

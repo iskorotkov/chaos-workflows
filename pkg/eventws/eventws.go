@@ -3,10 +3,11 @@ package eventws
 
 import (
 	"context"
+	"net/http"
+
 	"github.com/gorilla/websocket"
 	"github.com/iskorotkov/chaos-workflows/pkg/event"
 	"go.uber.org/zap"
-	"net/http"
 )
 
 // eventWebsocket is a websocket wrapper for sending workflow events.
@@ -15,7 +16,7 @@ type eventWebsocket struct {
 	logger *zap.SugaredLogger
 }
 
-func (ew eventWebsocket) Write(ctx context.Context, ev event.Event) error {
+func (ew eventWebsocket) Write(ctx context.Context, ev event.Workflow) error {
 	if deadline, ok := ctx.Deadline(); ok {
 		if err := ew.conn.SetWriteDeadline(deadline); err != nil {
 			ew.logger.Error(err)

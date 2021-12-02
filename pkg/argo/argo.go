@@ -9,18 +9,19 @@ import (
 
 	"github.com/argoproj/argo-workflows/v3/pkg/apiclient"
 	"github.com/argoproj/argo-workflows/v3/pkg/apiclient/workflow"
+	"github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
 	"github.com/iskorotkov/chaos-workflows/pkg/event"
 	"go.uber.org/zap"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// Watcher creates Argo events readers.
-type Watcher struct {
+// Client creates Argo events readers and lists workflows.
+type Client struct {
 	client apiclient.Client
 	logger *zap.SugaredLogger
 }
 
-func NewWatcher(url string, logger *zap.SugaredLogger) (Watcher, error) {
+func NewClient(url string, logger *zap.SugaredLogger) (Client, error) {
 	logger.Info("opening argo gRPC connection")
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*15)
@@ -44,14 +45,24 @@ func NewWatcher(url string, logger *zap.SugaredLogger) (Watcher, error) {
 	})
 	if err != nil {
 		logger.Errorw(err.Error(), "url", url)
-		return Watcher{}, event.ErrConnectionFailed
+		return Client{}, event.ErrConnectionFailed
 	}
 
 	logger.Debug("argo watcher created successfully")
-	return Watcher{client: apiClient, logger: logger}, nil
+	return Client{client: apiClient, logger: logger}, nil
 }
 
-func (w Watcher) New(ctx context.Context, namespace string, name string) (event.Reader, error) {
+func (w Client) List(ctx context.Context) ([]v1alpha1.Workflow, error) {
+	service, err := w.client.NewWorkflowServiceClient().ListWorkflows(ctx, &workflow.WorkflowListRequest{})
+	if err != nil {
+		w.logger.Error(err.Error())
+		return nil, event.ErrConnectionFailed
+	}
+
+	return service.Items, nil
+}
+
+func (w Client) New(ctx context.Context, namespace string, name string) (event.Reader, error) {
 	service, err := w.client.NewWorkflowServiceClient().WatchWorkflows(ctx, &workflow.WatchWorkflowsRequest{
 		Namespace: namespace,
 		ListOptions: &v1.ListOptions{
@@ -70,7 +81,7 @@ func (w Watcher) New(ctx context.Context, namespace string, name string) (event.
 	}, nil
 }
 
-func (w Watcher) Close() error {
+func (w Client) Close() error {
 	return nil
 }
 
@@ -81,24 +92,24 @@ type eventStream struct {
 	logger  *zap.SugaredLogger
 }
 
-func (e eventStream) Read() (event.Event, error) {
+func (e eventStream) Read() (event.Workflow, error) {
 	msg, err := e.service.Recv()
 	if err == io.EOF {
-		return event.Event{}, event.ErrAllRead
+		return event.Workflow{}, event.ErrAllRead
 	} else if e.ctx.Err() != nil {
-		return event.Event{}, event.ErrDeadlineExceeded
+		return event.Workflow{}, event.ErrDeadlineExceeded
 	} else if err != nil {
 		e.logger.Error(err)
-		return event.Event{}, event.ErrConnectionFailed
+		return event.Workflow{}, event.ErrConnectionFailed
 	}
 
-	ev, ok := event.ToCustomEvent(msg)
+	ev, ok := event.FromWorkflowEvent(msg)
 	if !ok {
 		e.logger.Error("couldn't convert to custom event")
-		return event.Event{}, event.ErrInvalidEvent
+		return event.Workflow{}, event.ErrInvalidEvent
 	}
 
-	if ev.Phase != "Running" && ev.Phase != "Pending" {
+	if ev.Status != "Running" && ev.Status != "Pending" {
 		return ev, event.ErrAllRead
 	}
 
