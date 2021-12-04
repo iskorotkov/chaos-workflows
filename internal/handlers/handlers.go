@@ -17,6 +17,9 @@ func WorkflowsRouter(argoClient argo.Client, wsFactory eventws.WebsocketFactory,
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		listWorkflows(w, argoClient, log.Named("list"))
 	})
+	r.Get("/{namespace}/{name}", func(w http.ResponseWriter, r *http.Request) {
+		getWorkflow(w, r, argoClient, log.Named("get"))
+	})
 	r.Get("/{namespace}/{name}/watch", func(w http.ResponseWriter, r *http.Request) {
 		watchWS(w, r, argoClient, wsFactory, log.Named("watch"))
 	})

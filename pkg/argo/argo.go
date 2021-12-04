@@ -62,6 +62,25 @@ func (w Client) List(ctx context.Context) ([]v1alpha1.Workflow, error) {
 	return service.Items, nil
 }
 
+func (w Client) Get(ctx context.Context, namespace string, name string) (v1alpha1.Workflow, error) {
+	service, err := w.client.NewWorkflowServiceClient().ListWorkflows(ctx, &workflow.WorkflowListRequest{
+		Namespace: namespace,
+		ListOptions: &v1.ListOptions{
+			FieldSelector: fmt.Sprintf("metadata.name=%s", name),
+		},
+	})
+	if err != nil {
+		w.logger.Error(err.Error())
+		return v1alpha1.Workflow{}, event.ErrConnectionFailed
+	}
+
+	if len(service.Items) == 0 {
+		return v1alpha1.Workflow{}, fmt.Errorf("workflow %s in namespace %s not found", name, namespace)
+	}
+
+	return service.Items[0], nil
+}
+
 func (w Client) New(ctx context.Context, namespace string, name string) (event.Reader, error) {
 	service, err := w.client.NewWorkflowServiceClient().WatchWorkflows(ctx, &workflow.WatchWorkflowsRequest{
 		Namespace: namespace,
