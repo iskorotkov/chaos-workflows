@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/argoproj/argo-workflows/v3/pkg/apiclient"
@@ -141,7 +142,7 @@ func (e eventStream) Read() (event.Workflow, error) {
 		return event.Workflow{}, event.ErrInvalidEvent
 	}
 
-	if ev.Status != "Running" && ev.Status != "Pending" {
+	if strings.ToLower(ev.Status) != "running" && strings.ToLower(ev.Status) != "pending" {
 		return ev, event.ErrAllRead
 	}
 
