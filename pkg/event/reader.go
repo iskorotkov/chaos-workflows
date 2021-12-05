@@ -7,13 +7,13 @@ import (
 
 // Reader reads a sequence of workflow events for a specific workflow.
 type Reader interface {
-	Read() (Event, error)
+	Read() (Workflow, error)
 	Close() error
 }
 
 // TestReader mocks Reader interface.
 type TestReader struct {
-	Events  []Event
+	Events  []Workflow
 	ErrRead error
 
 	Closed   bool
@@ -21,9 +21,9 @@ type TestReader struct {
 }
 
 func (t TestReader) Generate(rand *rand.Rand, size int) reflect.Value {
-	var events []Event
+	var events []Workflow
 	for i := 0; i < 1+rand.Intn(10); i++ {
-		events = append(events, Event{}.Generate(rand, size).Interface().(Event))
+		events = append(events, Workflow{}.Generate(rand, size).Interface().(Workflow))
 	}
 
 	return reflect.ValueOf(TestReader{
@@ -33,9 +33,9 @@ func (t TestReader) Generate(rand *rand.Rand, size int) reflect.Value {
 	})
 }
 
-func (t *TestReader) Read() (Event, error) {
+func (t *TestReader) Read() (Workflow, error) {
 	if t.ErrRead != nil {
-		return Event{}, t.ErrRead
+		return Workflow{}, t.ErrRead
 	}
 
 	e := t.Events[0]

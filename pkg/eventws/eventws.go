@@ -3,10 +3,11 @@ package eventws
 
 import (
 	"context"
+	"net/http"
+
 	"github.com/gorilla/websocket"
 	"github.com/iskorotkov/chaos-workflows/pkg/event"
 	"go.uber.org/zap"
-	"net/http"
 )
 
 // eventWebsocket is a websocket wrapper for sending workflow events.
@@ -15,7 +16,7 @@ type eventWebsocket struct {
 	logger *zap.SugaredLogger
 }
 
-func (ew eventWebsocket) Write(ctx context.Context, ev event.Event) error {
+func (ew eventWebsocket) Write(ctx context.Context, ev event.Workflow) error {
 	if deadline, ok := ctx.Deadline(); ok {
 		if err := ew.conn.SetWriteDeadline(deadline); err != nil {
 			ew.logger.Error(err)
@@ -32,7 +33,7 @@ func (ew eventWebsocket) Write(ctx context.Context, ev event.Event) error {
 }
 
 func (ew eventWebsocket) Close() error {
-	if err := ew.Close(); err != nil {
+	if err := ew.conn.Close(); err != nil {
 		ew.logger.Warnf("websocket was closed with error: %s", err)
 	}
 	return nil
@@ -63,8 +64,12 @@ func (wf WebsocketFactory) Close() error {
 func NewWebsocketFactory(logger *zap.SugaredLogger) WebsocketFactory {
 	return WebsocketFactory{
 		upgrader: websocket.Upgrader{
-			ReadBufferSize:  1024,
-			WriteBufferSize: 1024,
+			ReadBufferSize:    1024,
+			WriteBufferSize:   1024,
+			EnableCompression: true,
+			CheckOrigin: func(r *http.Request) bool {
+				return true
+			},
 		},
 		logger: logger,
 	}

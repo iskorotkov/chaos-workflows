@@ -1,4 +1,4 @@
-VERSION = v0.2.0
+VERSION = v0.3.2
 IMAGE = iskorotkov/chaos-workflows
 
 .PHONY: ci

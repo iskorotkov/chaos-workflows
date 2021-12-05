@@ -6,11 +6,19 @@ import (
 	"fmt"
 	"math/rand"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/argoproj/argo-workflows/v3/pkg/apiclient/workflow"
 	"github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+const (
+	typeKey     = "chaosframework.com/type"
+	severityKey = "chaosframework.com/severity"
+	scaleKey    = "chaosframework.com/scale"
+	versionKey  = "chaosframework.com/version"
 )
 
 var (
@@ -43,36 +51,39 @@ func GenerateTestError(rand *rand.Rand) error {
 
 // Step is a part of a stage.
 type Step struct {
-	Name        string            `json:"name,omitempty"`
-	Type        string            `json:"type,omitempty"`
-	Phase       string            `json:"phase,omitempty"`
-	Labels      map[string]string `json:"labels,omitempty"`
-	Annotations map[string]string `json:"annotations,omitempty"`
-	StartedAt   time.Time         `json:"startedAt,omitempty"`
-	FinishedAt  time.Time         `json:"finishedAt,omitempty"`
+	Name       string     `json:"name"`
+	Type       string     `json:"type"`
+	Severity   string     `json:"severity"`
+	Scale      string     `json:"scale"`
+	Status     string     `json:"status"`
+	Version    string     `json:"version"`
+	StartedAt  time.Time  `json:"startedAt"`
+	FinishedAt *time.Time `json:"finishedAt"`
 }
 
 func (s Step) Generate(rand *rand.Rand, _ int) reflect.Value {
 	f := func(prefix string) string {
 		return fmt.Sprintf("%s-%d", prefix, rand.Intn(10))
 	}
+	finishedAt := time.Time{}.Add(-time.Duration(rand.Intn(10)) * time.Minute)
 	return reflect.ValueOf(Step{
-		Name:        f("name"),
-		Type:        f("type"),
-		Phase:       f("phase"),
-		Labels:      map[string]string{"label1": "value1", "label2": "value2"},
-		Annotations: map[string]string{"ann1": "value3", "ann2": "value4"},
-		StartedAt:   time.Time{}.Add(-time.Duration(rand.Intn(10)) * time.Hour),
-		FinishedAt:  time.Time{}.Add(-time.Duration(rand.Intn(10)) * time.Minute),
+		Name:       f("name"),
+		Type:       f("type"),
+		Severity:   f("severity"),
+		Scale:      f("scale"),
+		Status:     f("status"),
+		Version:    f("version"),
+		StartedAt:  time.Time{}.Add(-time.Duration(rand.Intn(10)) * time.Hour),
+		FinishedAt: &finishedAt,
 	})
 }
 
 // Stage is a part of a workflow.
 type Stage struct {
-	Phase      string    `json:"phase,omitempty"`
-	StartedAt  time.Time `json:"startedAt,omitempty"`
-	FinishedAt time.Time `json:"finishedAt,omitempty"`
-	Steps      []Step    `json:"steps,omitempty"`
+	Status     string     `json:"status"`
+	StartedAt  time.Time  `json:"startedAt"`
+	FinishedAt *time.Time `json:"finishedAt"`
+	Steps      []Step     `json:"steps"`
 }
 
 func (s Stage) Generate(rand *rand.Rand, size int) reflect.Value {
@@ -85,28 +96,28 @@ func (s Stage) Generate(rand *rand.Rand, size int) reflect.Value {
 		steps = append(steps, Step{}.Generate(rand, size).Interface().(Step))
 	}
 
+	finishedAt := time.Time{}.Add(-time.Duration(rand.Intn(10)) * time.Minute)
 	return reflect.ValueOf(Stage{
-		Phase:      f("phase"),
+		Status:     f("phase"),
 		StartedAt:  time.Time{}.Add(-time.Duration(rand.Intn(10)) * time.Hour),
-		FinishedAt: time.Time{}.Add(-time.Duration(rand.Intn(10)) * time.Minute),
+		FinishedAt: &finishedAt,
 		Steps:      steps,
 	})
 }
 
-// Event is a workflow update message.
-type Event struct {
-	Name        string            `json:"name,omitempty"`
-	Namespace   string            `json:"namespace,omitempty"`
-	Type        string            `json:"type,omitempty"`
-	Labels      map[string]string `json:"labels,omitempty"`
-	Annotations map[string]string `json:"annotations,omitempty"`
-	Phase       string            `json:"phase,omitempty"`
-	StartedAt   time.Time         `json:"startedAt,omitempty"`
-	FinishedAt  time.Time         `json:"finishedAt,omitempty"`
-	Stages      []Stage           `json:"stages,omitempty"`
+// Workflow is a workflow update message.
+type Workflow struct {
+	Name       string     `json:"name"`
+	Namespace  string     `json:"namespace"`
+	StartedAt  time.Time  `json:"startedAt"`
+	FinishedAt *time.Time `json:"finishedAt"`
+	// Type is a type of event (when listening to workflow events).
+	Type   string  `json:"type,omitempty"`
+	Status string  `json:"status"`
+	Stages []Stage `json:"stages"`
 }
 
-func (e Event) Generate(rand *rand.Rand, size int) reflect.Value {
+func (e Workflow) Generate(rand *rand.Rand, size int) reflect.Value {
 	f := func(prefix string) string {
 		return fmt.Sprintf("%s-%d", prefix, rand.Intn(10))
 	}
@@ -116,16 +127,15 @@ func (e Event) Generate(rand *rand.Rand, size int) reflect.Value {
 		stages = append(stages, Stage{}.Generate(rand, size).Interface().(Stage))
 	}
 
-	return reflect.ValueOf(Event{
-		Name:        f("name"),
-		Namespace:   f("namespace"),
-		Type:        f("type"),
-		Labels:      map[string]string{"label1": "value1", "label2": "value2"},
-		Annotations: map[string]string{"ann1": "value3", "ann2": "value4"},
-		Phase:       f("phase"),
-		StartedAt:   time.Time{}.Add(-time.Duration(rand.Intn(10)) * time.Hour),
-		FinishedAt:  time.Time{}.Add(-time.Duration(rand.Intn(10)) * time.Minute),
-		Stages:      stages,
+	finishedAt := time.Time{}.Add(-time.Duration(rand.Intn(10)) * time.Minute)
+	return reflect.ValueOf(Workflow{
+		Name:       f("name"),
+		Namespace:  f("namespace"),
+		Type:       f("type"),
+		Status:     f("status"),
+		StartedAt:  time.Time{}.Add(-time.Duration(rand.Intn(10)) * time.Hour),
+		FinishedAt: &finishedAt,
+		Stages:     stages,
 	})
 }
 
@@ -160,22 +170,47 @@ func (n nodes) Generate(r *rand.Rand, _ int) reflect.Value {
 	return reflect.ValueOf(statuses)
 }
 
-func ToCustomEvent(e *workflow.WorkflowWatchEvent) (Event, bool) {
-	stages, ok := buildNodesTree(e.Object.Spec.Templates, nodes(e.Object.Status.Nodes))
+func FromWorkflow(w v1alpha1.Workflow) (Workflow, bool) {
+	stages, ok := buildNodesTree(w.Spec.Templates, nodes(w.Status.Nodes))
 	if !ok {
-		return Event{}, false
+		return Workflow{}, false
 	}
 
-	return Event{
-		Name:        e.Object.Name,
-		Namespace:   e.Object.Namespace,
-		Type:        e.Type,
-		Labels:      e.Object.Labels,
-		Annotations: e.Object.Annotations,
-		Phase:       string(e.Object.Status.Phase),
-		StartedAt:   e.Object.Status.StartedAt.Time,
-		FinishedAt:  e.Object.Status.FinishedAt.Time,
-		Stages:      stages,
+	finishedAt := &w.Status.FinishedAt.Time
+	if *finishedAt == (time.Time{}) {
+		finishedAt = nil
+	}
+
+	return Workflow{
+		Name:       w.Name,
+		Namespace:  w.Namespace,
+		Type:       "", // No type set for non-event value.
+		Status:     strings.ToLower(string(w.Status.Phase)),
+		StartedAt:  w.Status.StartedAt.Time,
+		FinishedAt: finishedAt,
+		Stages:     stages,
+	}, true
+}
+
+func FromWorkflowEvent(e *workflow.WorkflowWatchEvent) (Workflow, bool) {
+	stages, ok := buildNodesTree(e.Object.Spec.Templates, nodes(e.Object.Status.Nodes))
+	if !ok {
+		return Workflow{}, false
+	}
+
+	finishedAt := &e.Object.Status.FinishedAt.Time
+	if *finishedAt == (time.Time{}) {
+		finishedAt = nil
+	}
+
+	return Workflow{
+		Name:       e.Object.Name,
+		Namespace:  e.Object.Namespace,
+		Type:       e.Type,
+		Status:     strings.ToLower(string(e.Object.Status.Phase)),
+		StartedAt:  e.Object.Status.StartedAt.Time,
+		FinishedAt: finishedAt,
+		Stages:     stages,
 	}, true
 }
 
@@ -237,23 +272,34 @@ func findStepSpec(stepStatus v1alpha1.NodeStatus, ts []v1alpha1.Template) (v1alp
 
 // newStep returns new Step from v1alpha1.Metadata and v1alpha1.NodeStatus.
 func newStep(metadata v1alpha1.Metadata, n v1alpha1.NodeStatus) Step {
+	finishedAt := &n.FinishedAt.Time
+	if *finishedAt == (time.Time{}) {
+		finishedAt = nil
+	}
+
 	return Step{
-		Name:        n.TemplateName,
-		Type:        string(n.Type),
-		Phase:       string(n.Phase),
-		Labels:      metadata.Labels,
-		Annotations: metadata.Annotations,
-		StartedAt:   n.StartedAt.Time,
-		FinishedAt:  n.FinishedAt.Time,
+		Name:       n.TemplateName,
+		Type:       metadata.Annotations[typeKey],
+		Severity:   metadata.Annotations[severityKey],
+		Scale:      metadata.Annotations[scaleKey],
+		Version:    metadata.Annotations[versionKey],
+		Status:     strings.ToLower(string(n.Phase)),
+		StartedAt:  n.StartedAt.Time,
+		FinishedAt: finishedAt,
 	}
 }
 
 // newStage returns new Stage from v1alpha1.NodeStatus and list of Step.
 func newStage(n v1alpha1.NodeStatus, steps []Step) Stage {
+	finishedAt := &n.FinishedAt.Time
+	if *finishedAt == (time.Time{}) {
+		finishedAt = nil
+	}
+
 	return Stage{
-		Phase:      string(n.Phase),
+		Status:     strings.ToLower(string(n.Phase)),
 		StartedAt:  n.StartedAt.Time,
-		FinishedAt: n.FinishedAt.Time,
+		FinishedAt: finishedAt,
 		Steps:      steps,
 	}
 }
