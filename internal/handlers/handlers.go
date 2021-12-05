@@ -23,6 +23,9 @@ func WorkflowsRouter(argoClient argo.Client, wsFactory eventws.WebsocketFactory,
 	r.Get("/{namespace}/{name}/watch", func(w http.ResponseWriter, r *http.Request) {
 		watchWS(w, r, argoClient, wsFactory, log.Named("watch"))
 	})
+	r.Post("/{namespace}/{name}/cancel", func(w http.ResponseWriter, r *http.Request) {
+		cancelWorkflow(w, r, argoClient, log.Named("cancel"))
+	})
 
 	return r
 }
