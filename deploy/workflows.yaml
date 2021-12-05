@@ -18,9 +18,9 @@ metadata:
   labels:
     app: chaos-framework
 rules:
-  - apiGroups: [ "" ]
-    resources: [ "pods"]
-    verbs: [ "get","list","watch" ]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -54,7 +54,7 @@ spec:
       serviceAccountName: chaos-framework-sa
       containers:
         - name: workflows
-          image: iskorotkov/chaos-workflows:v0.1.0
+          image: iskorotkov/chaos-workflows:v0.2.0
           ports:
             - name: web
               containerPort: 8811
