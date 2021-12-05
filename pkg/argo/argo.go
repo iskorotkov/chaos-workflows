@@ -104,6 +104,19 @@ func (w Client) Close() error {
 	return nil
 }
 
+func (w Client) Stop(ctx context.Context, namespace string, name string) (v1alpha1.Workflow, error) {
+	wf, err := w.client.NewWorkflowServiceClient().StopWorkflow(ctx, &workflow.WorkflowStopRequest{
+		Namespace: namespace,
+		Name:      name,
+		Message:   "Cancelled via GUI",
+	})
+	if err != nil {
+		return v1alpha1.Workflow{}, fmt.Errorf("error stopping workflow %s in namespace %s: %v", name, namespace, err)
+	}
+
+	return *wf, nil
+}
+
 // eventStream reads stream of workflow events from Argo server.
 type eventStream struct {
 	ctx     context.Context
